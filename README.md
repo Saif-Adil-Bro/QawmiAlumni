@@ -65,6 +65,8 @@ Configure these in **GitHub Repo → Settings → Secrets and variables → Acti
 | `KEYSTORE_PASSWORD` | Password for the keystore |
 | `KEY_ALIAS` | Alias name of the key |
 | `KEY_PASSWORD` | Password for the key |
+| `APPETIZE_API_TOKEN` | (Optional) Appetize.io API token for automated browser live preview |
+| `APPETIZE_PUBLIC_KEY` | (Optional) Appetize.io app public key to update existing preview URL |
 
 ---
 
