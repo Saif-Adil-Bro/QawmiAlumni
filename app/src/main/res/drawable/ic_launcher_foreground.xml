@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon foreground: open book with a crescent (108dp canvas, 66dp safe zone). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Crescent -->
+    <path
+        android:fillColor="#D97706"
+        android:pathData="M54,30a8,8 0,1 0,6 13.3a6.5,6.5 0,1 1,-6 -13.3z" />
+    <!-- Left page -->
+    <path
+        android:fillColor="#FAF8F5"
+        android:pathData="M52,50C46,46 38,45 32,46L32,74C38,73 46,74 52,78Z" />
+    <!-- Right page -->
+    <path
+        android:fillColor="#FAF8F5"
+        android:pathData="M56,50C62,46 70,45 76,46L76,74C70,73 62,74 56,78Z" />
+</vector>

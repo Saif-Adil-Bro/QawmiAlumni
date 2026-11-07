@@ -1,0 +1,35 @@
+# ============================================================
+# ZERO-SECRET-IN-REPO POLICY (Blueprint §10.A) — NEVER REMOVE
+# ============================================================
+local.properties
+app/google-services.json
+google-services.json
+*.jks
+*.keystore
+keystore.properties
+.env
+
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+output-metadata.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
