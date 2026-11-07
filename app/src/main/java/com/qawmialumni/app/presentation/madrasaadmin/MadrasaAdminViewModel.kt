@@ -8,6 +8,7 @@ import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.Notice
 import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.Ustad
+import com.qawmialumni.app.domain.model.UstadHonorific
 import com.qawmialumni.app.domain.repository.AdminRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -114,6 +115,7 @@ class MadrasaAdminViewModel @Inject constructor(
 
     fun addUstad(
         name: String,
+        honorific: UstadHonorific,
         designation: String,
         specialization: String,
         bio: String,
@@ -130,13 +132,14 @@ class MadrasaAdminViewModel @Inject constructor(
             val ustad = Ustad(
                 madrasaId = madrasaId,
                 name = name.trim(),
+                honorific = honorific,
                 designation = designation.trim(),
                 specialization = specialization.trim(),
                 bio = bio.trim(),
-                isActive = true,
+                isActive = honorific == UstadHonorific.DAMAT_BARAKATUHUM,
             )
             when (val res = adminRepository.addUstad(ustad, photoUri)) {
-                is Resource.Success -> _actionState.value = ActionState.Success("উস্তাদ যুক্ত করা হয়েছে")
+                is Resource.Success -> _actionState.value = ActionState.Success("উস্তাদের তথ্য যুক্ত করা হয়েছে")
                 is Resource.Error -> _actionState.value = ActionState.Error(res.message)
                 Resource.Loading -> Unit
             }
@@ -169,6 +172,14 @@ class MadrasaAdminViewModel @Inject constructor(
                 is Resource.Error -> _actionState.value = ActionState.Error(res.message)
                 Resource.Loading -> Unit
             }
+        }
+    }
+
+    fun toggleNoticeRsvp(noticeId: String, isCurrentlyGoing: Boolean) {
+        val uid = currentSession.value?.uid ?: return
+        if (uid.isBlank()) return
+        viewModelScope.launch {
+            adminRepository.toggleNoticeRsvp(noticeId, uid, isCurrentlyGoing)
         }
     }
 

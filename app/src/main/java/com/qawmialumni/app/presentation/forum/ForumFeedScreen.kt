@@ -1,10 +1,12 @@
 package com.qawmialumni.app.presentation.forum
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,10 +40,11 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,7 +59,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -64,6 +70,7 @@ import coil.compose.AsyncImage
 import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
+import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.presentation.components.VerifiedBadge
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
 import com.qawmialumni.app.presentation.theme.HeritageGold
@@ -74,9 +81,15 @@ fun ForumFeedScreen(
 ) {
     val postsResource by viewModel.posts.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val session by viewModel.session.collectAsState()
 
     var showCreatePostDialog by remember { mutableStateOf(false) }
     var selectedPostForComments by remember { mutableStateOf<ForumPost?>(null) }
+
+    val currentUid = session?.uid.orEmpty()
+    val isModerator = session?.role == UserRole.MADRASA_ADMIN ||
+        session?.role == UserRole.STAFF ||
+        session?.role == UserRole.SUPER_ADMIN
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -130,14 +143,22 @@ fun ForumFeedScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 80.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
                             items(res.data, key = { it.postId }) { post ->
+                                val isLikedByMe = currentUid.isNotBlank() && currentUid in post.likedByUids
+                                val canDelete = isModerator || post.authorUid == currentUid
+
                                 ForumPostCard(
                                     post = post,
-                                    onLikeClick = { viewModel.toggleLike(post.postId, post.likesCount) },
+                                    isLikedByMe = isLikedByMe,
+                                    canPin = isModerator,
+                                    canDelete = canDelete,
+                                    onLikeClick = { viewModel.toggleLike(post) },
                                     onCommentClick = { selectedPostForComments = post },
+                                    onPinClick = { viewModel.togglePinPost(post) },
+                                    onDeleteClick = { viewModel.deletePost(post.postId) },
                                 )
                             }
                         }
@@ -178,16 +199,47 @@ fun ForumFeedScreen(
 @Composable
 fun ForumPostCard(
     post: ForumPost,
+    isLikedByMe: Boolean,
+    canPin: Boolean,
+    canDelete: Boolean,
     onLikeClick: () -> Unit,
     onCommentClick: () -> Unit,
+    onPinClick: () -> Unit,
+    onDeleteClick: () -> Unit,
 ) {
+    val context = LocalContext.current
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (post.isPinned) {
+                    Modifier.border(1.5.dp, HeritageGold, RoundedCornerShape(16.dp))
+                } else {
+                    Modifier
+                }
+            ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(2.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            if (post.isPinned) {
+                Surface(
+                    color = HeritageGold.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.padding(bottom = 8.dp),
+                ) {
+                    Text(
+                        text = "📌 পিন করা গুরুত্বপূর্ণ পোস্ট",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = HeritageGold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
+
             // Author info row
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -248,6 +300,25 @@ fun ForumPostCard(
                 lineHeight = 22.sp,
             )
 
+            // Contact Phone button for Khedmat Vacancy / Urgent posts
+            if (post.contactPhone.isNotBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${post.contactPhone}"))
+                        context.startActivity(intent)
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Text(
+                        text = "📞 যোগাযোগ: ${post.contactPhone}",
+                        color = EmeraldPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+
             if (post.imageUrl.isNotBlank()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 AsyncImage(
@@ -263,17 +334,44 @@ fun ForumPostCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Actions row (Like, Comment)
+            // Actions row (Like, Comment, Pin, Delete)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onLikeClick) {
-                    Text("❤️ ${post.likesCount} পছন্দ", color = EmeraldPrimary, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onLikeClick) {
+                        Text(
+                            text = if (isLikedByMe) "❤️ ${post.likesCount} পছন্দ" else "🤍 ${post.likesCount} পছন্দ",
+                            color = if (isLikedByMe) Color(0xFFDC2626) else EmeraldPrimary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    TextButton(onClick = onCommentClick) {
+                        Text("💬 ${post.commentsCount} মন্তব্য", color = HeritageGold, fontWeight = FontWeight.SemiBold)
+                    }
                 }
-                TextButton(onClick = onCommentClick) {
-                    Text("💬 ${post.commentsCount} মন্তব্য", color = HeritageGold, fontWeight = FontWeight.SemiBold)
+
+                Row {
+                    if (canPin) {
+                        TextButton(onClick = onPinClick) {
+                            Text(
+                                text = if (post.isPinned) "আনপিন" else "📌 পিন",
+                                fontSize = 12.sp,
+                                color = EmeraldPrimary,
+                            )
+                        }
+                    }
+                    if (canDelete) {
+                        TextButton(onClick = onDeleteClick) {
+                            Text(
+                                text = "🗑️ মুছুন",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -290,6 +388,7 @@ fun CreatePostDialog(
 
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
+    var contactPhone by remember { mutableStateOf("") }
     var selectedCat by remember { mutableStateOf(ForumCategory.ILMI_MUZAKARA) }
     var catExpanded by remember { mutableStateOf(false) }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
@@ -321,7 +420,7 @@ fun CreatePostDialog(
                     .padding(20.dp),
             ) {
                 Text(
-                    text = "নতুন আলোচনা পোস্ট করুন",
+                    text = "নতুন আলোচনা বা খেদমত বিজ্ঞপ্তি",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = EmeraldPrimary,
@@ -385,6 +484,18 @@ fun CreatePostDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                OutlinedTextField(
+                    value = contactPhone,
+                    onValueChange = { contactPhone = it },
+                    label = { Text("যোগাযোগের ফোন নম্বর (খেদমত আবশ্যক হলে)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    shape = RoundedCornerShape(10.dp),
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -410,6 +521,15 @@ fun CreatePostDialog(
                     }
                 }
 
+                if (createPostState is Resource.Error) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = (createPostState as Resource.Error).message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -417,7 +537,7 @@ fun CreatePostDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            viewModel.createPost(title, selectedCat, content, imageUri)
+                            viewModel.createPost(title, selectedCat, content, contactPhone, imageUri)
                         },
                         enabled = createPostState !is Resource.Loading,
                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),

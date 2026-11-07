@@ -29,9 +29,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
@@ -64,6 +68,7 @@ import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.Notice
 import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.Ustad
+import com.qawmialumni.app.domain.model.UstadHonorific
 import com.qawmialumni.app.presentation.components.BloodGroupPill
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
 import com.qawmialumni.app.presentation.theme.HeritageGold
@@ -75,10 +80,13 @@ fun MadrasaAdminPanel(
 ) {
     var selectedSubTab by remember { mutableIntStateOf(0) }
     val actionState by viewModel.actionState.collectAsState()
+    val pendingRes by viewModel.pendingRequests.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showAddUstadDialog by remember { mutableStateOf(false) }
     var showCreateNoticeDialog by remember { mutableStateOf(false) }
+
+    val pendingCount = (pendingRes as? Resource.Success)?.data?.size ?: 0
 
     LaunchedEffect(actionState) {
         when (actionState) {
@@ -104,17 +112,22 @@ fun MadrasaAdminPanel(
                 Tab(
                     selected = selectedSubTab == 0,
                     onClick = { selectedSubTab = 0 },
-                    text = { Text("পেন্ডিং আবেদন") },
+                    text = {
+                        Text(
+                            if (pendingCount > 0) "পেন্ডিং আবেদন ($pendingCount)" else "পেন্ডিং আবেদন",
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
                 )
                 Tab(
                     selected = selectedSubTab == 1,
                     onClick = { selectedSubTab = 1 },
-                    text = { Text("উস্তাদবৃন্দ") },
+                    text = { Text("আসাতিযায়ে কেরাম", fontWeight = FontWeight.Bold) },
                 )
                 Tab(
                     selected = selectedSubTab == 2,
                     onClick = { selectedSubTab = 2 },
-                    text = { Text("নোটিশ প্রকাশ") },
+                    text = { Text("নোটিশ প্রকাশ", fontWeight = FontWeight.Bold) },
                 )
             }
 
@@ -247,11 +260,18 @@ fun PendingStudentCard(
                         )
                     }
                     Text(
-                        text = "হিজরি ব্যাচ: ${student.batchYearHijri} | রোল: ${student.dakhilaNumber}",
+                        text = "${student.department.banglaName} • ${student.batchYearHijri} হি. | দাখেলা: ${student.dakhilaNumber}",
                         style = MaterialTheme.typography.bodySmall,
                         color = HeritageGold,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    if (student.phone.isNotBlank()) {
+                        Text(
+                            text = "📞 ${student.phone}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
 
                 BloodGroupPill(bloodGroup = student.bloodGroup)
@@ -261,7 +281,7 @@ fun PendingStudentCard(
                 Spacer(modifier = Modifier.height(10.dp))
                 if (student.supervisedByUstadName.isNotBlank()) {
                     Text(
-                        text = "উস্তাদ/নিগরান: ${student.supervisedByUstadName}",
+                        text = "মুরব্বি উস্তাদ: ${student.supervisedByUstadName}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
@@ -357,9 +377,9 @@ fun UstadsManagementSection(
 fun UstadItemCard(ustad: Ustad) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(1.dp),
+        elevation = CardDefaults.cardElevation(2.dp),
     ) {
         Row(
             modifier = Modifier
@@ -369,7 +389,7 @@ fun UstadItemCard(ustad: Ustad) {
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(52.dp)
                     .clip(CircleShape)
                     .background(EmeraldPrimary.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center,
@@ -382,7 +402,7 @@ fun UstadItemCard(ustad: Ustad) {
                         contentScale = ContentScale.Crop,
                     )
                 } else {
-                    Text(ustad.name.take(1), fontWeight = FontWeight.Bold, color = EmeraldPrimary)
+                    Text(ustad.name.take(1), fontWeight = FontWeight.Bold, color = EmeraldPrimary, fontSize = 20.sp)
                 }
             }
 
@@ -390,7 +410,7 @@ fun UstadItemCard(ustad: Ustad) {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = ustad.name,
+                    text = ustad.displayNameWithHonorific,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = EmeraldPrimary,
@@ -403,22 +423,42 @@ fun UstadItemCard(ustad: Ustad) {
                 )
                 if (ustad.specialization.isNotBlank()) {
                     Text(
-                        text = "তাকাসসুস / কিতাব: ${ustad.specialization}",
+                        text = "দরস / বিশেষত্ব: ${ustad.specialization}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
+
+            Surface(
+                color = if (ustad.honorific == UstadHonorific.DAMAT_BARAKATUHUM) {
+                    EmeraldPrimary.copy(alpha = 0.12f)
+                } else {
+                    HeritageGold.copy(alpha = 0.16f)
+                },
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(
+                    text = ustad.honorific.banglaSuffix,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (ustad.honorific == UstadHonorific.DAMAT_BARAKATUHUM) EmeraldPrimary else HeritageGold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddUstadDialog(
     viewModel: MadrasaAdminViewModel,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
+    var selectedHonorific by remember { mutableStateOf(UstadHonorific.DAMAT_BARAKATUHUM) }
+    var honorificExpanded by remember { mutableStateOf(false) }
     var designation by remember { mutableStateOf("") }
     var specialization by remember { mutableStateOf("") }
     var bio by remember { mutableStateOf("") }
@@ -481,11 +521,44 @@ fun AddUstadDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("উস্তাদের নাম * (যেমন: শায়খুল হাদিস...)") },
+                    label = { Text("উস্তাদের নাম * (যেমন: আল্লামা ...)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Honorific Dropdown: (দা.বা.) vs (রহ.)
+                ExposedDropdownMenuBox(
+                    expanded = honorificExpanded,
+                    onExpandedChange = { honorificExpanded = !honorificExpanded },
+                ) {
+                    OutlinedTextField(
+                        value = "${selectedHonorific.banglaSuffix} • ${selectedHonorific.arabicSuffix}",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("সম্মানসূচক উপাধি (দা.বা. / রহ.)") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = honorificExpanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        shape = RoundedCornerShape(10.dp),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = honorificExpanded,
+                        onDismissRequest = { honorificExpanded = false },
+                    ) {
+                        UstadHonorific.entries.forEach { hon ->
+                            DropdownMenuItem(
+                                text = { Text("${hon.banglaSuffix} • ${hon.arabicSuffix}") },
+                                onClick = {
+                                    selectedHonorific = hon
+                                    honorificExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
@@ -501,7 +574,7 @@ fun AddUstadDialog(
                 OutlinedTextField(
                     value = specialization,
                     onValueChange = { specialization = it },
-                    label = { Text("পাঠদানকৃত কিতাব / বিশেষত্ব (যেমন: বুখারী শরীফ)") },
+                    label = { Text("পাঠদানকৃত কিতাব / বিশেষত্ব (যেমন: সহীহ বুখারী)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
@@ -511,7 +584,7 @@ fun AddUstadDialog(
                 OutlinedTextField(
                     value = bio,
                     onValueChange = { bio = it },
-                    label = { Text("সংক্ষিপ্ত পরিচিতি") },
+                    label = { Text("সংক্ষিপ্ত জীবনী / পরিচিতি") },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3,
                     shape = RoundedCornerShape(10.dp),
@@ -526,6 +599,7 @@ fun AddUstadDialog(
                         onClick = {
                             viewModel.addUstad(
                                 name = name,
+                                honorific = selectedHonorific,
                                 designation = designation,
                                 specialization = specialization,
                                 bio = bio,
@@ -630,7 +704,7 @@ fun NoticeItemCard(notice: Notice) {
             if (notice.eventDate.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "তারিখ/অনুষ্ঠান: ${notice.eventDate}",
+                    text = "📅 তারিখ/অনুষ্ঠান: ${notice.eventDate}",
                     style = MaterialTheme.typography.bodySmall,
                     color = HeritageGold,
                     fontWeight = FontWeight.SemiBold,
@@ -641,6 +715,13 @@ fun NoticeItemCard(notice: Notice) {
                 text = notice.details,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "অংশগ্রহণেচ্ছুক সাথী (RSVP): ${notice.rsvpUids.size} জন",
+                style = MaterialTheme.typography.bodySmall,
+                color = EmeraldPrimary,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
@@ -677,7 +758,7 @@ fun CreateNoticeDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "নতুন নোটিশ প্রকাশ",
+                    text = "নতুন নোটিশ / দস্তারবন্দী ঘোষণা",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = EmeraldPrimary,

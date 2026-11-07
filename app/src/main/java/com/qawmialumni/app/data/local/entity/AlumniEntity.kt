@@ -3,15 +3,12 @@ package com.qawmialumni.app.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.qawmialumni.app.domain.model.GraduationDepartment
 import com.qawmialumni.app.domain.model.KhedmatCategory
 import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.UserStatus
 
-/**
- * Room Entity caching approved alumni profiles locally (Blueprint §5.D.1).
- * Indices optimize instant smart filtering by batch, ustad, blood group, etc.
- */
 @Entity(
     tableName = "alumni",
     indices = [
@@ -19,6 +16,7 @@ import com.qawmialumni.app.domain.model.UserStatus
         Index(value = ["madrasaId", "batchYearHijri"]),
         Index(value = ["madrasaId", "supervisedByUstadId"]),
         Index(value = ["madrasaId", "bloodGroup"]),
+        Index(value = ["madrasaId", "department"]),
         Index(value = ["updatedAt"]),
     ]
 )
@@ -33,6 +31,7 @@ data class AlumniEntity(
     val photoUrl: String,
     val role: String,
     val status: String,
+    val department: String,
     val dakhilaNumber: String,
     val batchYearHijri: String,
     val batchYearEng: String,
@@ -57,6 +56,7 @@ fun AlumniEntity.toDomain(): UserProfile = UserProfile(
     role = UserRole.fromWire(role),
     madrasaId = madrasaId,
     status = UserStatus.fromWire(status),
+    department = GraduationDepartment.fromWire(department),
     dakhilaNumber = dakhilaNumber,
     batchYearHijri = batchYearHijri,
     batchYearEng = batchYearEng,
@@ -81,6 +81,7 @@ fun UserProfile.toEntity(): AlumniEntity = AlumniEntity(
     photoUrl = photoUrl,
     role = role.wireValue,
     status = status.wireValue,
+    department = department.wireValue,
     dakhilaNumber = dakhilaNumber,
     batchYearHijri = batchYearHijri,
     batchYearEng = batchYearEng,

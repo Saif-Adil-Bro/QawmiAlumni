@@ -5,6 +5,7 @@ import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.Madrasa
 import com.qawmialumni.app.domain.model.Notice
 import com.qawmialumni.app.domain.model.UserProfile
+import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.Ustad
 import kotlinx.coroutines.flow.Flow
 
@@ -31,6 +32,13 @@ interface AdminRepository {
 
     suspend fun rejectJoinRequest(userId: String): Resource<Unit>
 
+    /** Assign or revoke Staff / Batch Representative (জিম্মাদার) role for an approved alumni. */
+    suspend fun updateMemberRole(
+        userId: String,
+        madrasaId: String,
+        newRole: UserRole,
+    ): Resource<Unit>
+
     suspend fun addUstad(
         ustad: Ustad,
         photoUri: Uri?,
@@ -44,4 +52,11 @@ interface AdminRepository {
     ): Resource<Unit>
 
     fun getNotices(madrasaId: String): Flow<Resource<List<Notice>>>
+
+    /** Dastarbandi / Alumni Reunion attendance RSVP toggle. */
+    suspend fun toggleNoticeRsvp(
+        noticeId: String,
+        userId: String,
+        isCurrentlyGoing: Boolean,
+    ): Resource<Unit>
 }

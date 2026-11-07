@@ -15,7 +15,7 @@ import com.qawmialumni.app.data.local.entity.UstadEntity
         UstadEntity::class,
         NoticeEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -28,6 +28,12 @@ class ForumViewModel @Inject constructor(
     val dataStore: UserPreferencesDataStore,
 ) : ViewModel() {
 
+    val session = dataStore.userSession.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = null,
+    )
+
     private val _selectedCategory = MutableStateFlow<ForumCategory?>(null)
     val selectedCategory: StateFlow<ForumCategory?> = _selectedCategory.asStateFlow()
 
@@ -35,12 +41,12 @@ class ForumViewModel @Inject constructor(
     val createPostState: StateFlow<Resource<Unit>?> = _createPostState.asStateFlow()
 
     val posts: StateFlow<Resource<List<ForumPost>>> = dataStore.userSession
-        .flatMapLatest { session ->
-            if (session.madrasaId.isBlank()) {
+        .flatMapLatest { userSession ->
+            if (userSession.madrasaId.isBlank()) {
                 flowOf(Resource.Success(emptyList()))
             } else {
                 _selectedCategory.flatMapLatest { cat ->
-                    communityRepository.getForumPosts(session.madrasaId, cat)
+                    communityRepository.getForumPosts(userSession.madrasaId, cat)
                 }
             }
         }
@@ -54,9 +60,28 @@ class ForumViewModel @Inject constructor(
         _selectedCategory.value = cat
     }
 
-    fun toggleLike(postId: String, currentLikes: Int) {
+    fun toggleLike(post: ForumPost) {
+        val currentUid = session.value?.uid ?: return
+        if (currentUid.isBlank()) return
+        val isCurrentlyLiked = currentUid in post.likedByUids
         viewModelScope.launch {
-            communityRepository.toggleLikePost(postId, currentLikes)
+            communityRepository.toggleLikePost(
+                postId = post.postId,
+                userId = currentUid,
+                isCurrentlyLiked = isCurrentlyLiked,
+            )
+        }
+    }
+
+    fun deletePost(postId: String) {
+        viewModelScope.launch {
+            communityRepository.deletePost(postId)
+        }
+    }
+
+    fun togglePinPost(post: ForumPost) {
+        viewModelScope.launch {
+            communityRepository.togglePinPost(post.postId, !post.isPinned)
         }
     }
 
@@ -64,20 +89,26 @@ class ForumViewModel @Inject constructor(
         title: String,
         category: ForumCategory,
         content: String,
+        contactPhone: String,
         imageUri: Uri?,
     ) {
+        if (title.isBlank() || content.isBlank()) {
+            _createPostState.value = Resource.Error("শিরোনাম ও বিস্তারিত বক্তব্য লিখুন")
+            return
+        }
         viewModelScope.launch {
-            val session = dataStore.userSession.stateIn(viewModelScope).value
+            val s = session.value ?: return@launch
             _createPostState.value = Resource.Loading
             val post = ForumPost(
-                madrasaId = session.madrasaId,
-                authorUid = session.uid,
-                authorName = session.name,
-                authorPhoto = session.photoUrl,
-                authorRole = session.role,
+                madrasaId = s.madrasaId,
+                authorUid = s.uid,
+                authorName = s.name,
+                authorPhoto = s.photoUrl,
+                authorRole = s.role,
                 category = category,
                 title = title.trim(),
                 content = content.trim(),
+                contactPhone = contactPhone.trim(),
             )
             _createPostState.value = communityRepository.createPost(post, imageUri)
         }
@@ -99,11 +130,11 @@ class ForumViewModel @Inject constructor(
     fun addComment(postId: String, text: String) {
         if (text.isBlank()) return
         viewModelScope.launch {
-            val session = dataStore.userSession.stateIn(viewModelScope).value
+            val s = session.value ?: return@launch
             val comment = PostComment(
-                authorUid = session.uid,
-                authorName = session.name,
-                authorPhoto = session.photoUrl,
+                authorUid = s.uid,
+                authorName = s.name,
+                authorPhoto = s.photoUrl,
                 text = text.trim(),
             )
             communityRepository.addComment(postId, comment)

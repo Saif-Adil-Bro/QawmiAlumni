@@ -54,12 +54,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.qawmialumni.app.core.util.Resource
+import com.qawmialumni.app.domain.model.GraduationDepartment
 import com.qawmialumni.app.domain.model.KhedmatCategory
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
 
 /**
  * Flow 2 (Direct Creation by Admin/Staff - Blueprint §5.B):
  * Creates student profile directly with status = 'approved'.
+ * If the student later registers with the same phone number, their account automatically links!
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +76,7 @@ fun AddStudentByStaffDialog(
     var phone by remember { mutableStateOf("") }
     var whatsApp by remember { mutableStateOf("") }
     var dakhilaNumber by remember { mutableStateOf("") }
+    var selectedDepartment by remember { mutableStateOf(GraduationDepartment.DAWRA_HADITH) }
     var batchHijri by remember { mutableStateOf("") }
     var batchEng by remember { mutableStateOf("") }
     var supervisedUstadName by remember { mutableStateOf("") }
@@ -83,6 +86,8 @@ fun AddStudentByStaffDialog(
     var district by remember { mutableStateOf("") }
     var bio by remember { mutableStateOf("") }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
+
+    var deptExpanded by remember { mutableStateOf(false) }
     var categoryExpanded by remember { mutableStateOf(false) }
 
     val photoPicker = rememberLauncherForActivityResult(
@@ -101,7 +106,7 @@ fun AddStudentByStaffDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 16.dp),
+                .padding(vertical = 12.dp),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
@@ -146,7 +151,7 @@ fun AddStudentByStaffDialog(
                             contentScale = ContentScale.Crop,
                         )
                     } else {
-                        Text("ছবি দিন", fontSize = 11.sp, color = EmeraldPrimary)
+                        Text("ছবি দিন", fontSize = 11.sp, color = EmeraldPrimary, fontWeight = FontWeight.SemiBold)
                     }
                 }
 
@@ -155,7 +160,7 @@ fun AddStudentByStaffDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("নাম *") },
+                    label = { Text("পূর্ণ নাম *") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
@@ -170,6 +175,39 @@ fun AddStudentByStaffDialog(
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Department Selector
+                ExposedDropdownMenuBox(
+                    expanded = deptExpanded,
+                    onExpandedChange = { deptExpanded = !deptExpanded },
+                ) {
+                    OutlinedTextField(
+                        value = selectedDepartment.banglaName,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("ফারেগ হওয়ার বিভাগ") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = deptExpanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        shape = RoundedCornerShape(10.dp),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = deptExpanded,
+                        onDismissRequest = { deptExpanded = false },
+                    ) {
+                        GraduationDepartment.entries.forEach { dept ->
+                            DropdownMenuItem(
+                                text = { Text(dept.banglaName) },
+                                onClick = {
+                                    selectedDepartment = dept
+                                    deptExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Row(modifier = Modifier.fillMaxWidth()) {
@@ -217,9 +255,62 @@ fun AddStudentByStaffDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
+                    value = supervisedUstadName,
+                    onValueChange = { supervisedUstadName = it },
+                    label = { Text("মুরব্বি / তত্ত্বাবধায়ক উস্তাদ") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Khedmat Category Selector
+                ExposedDropdownMenuBox(
+                    expanded = categoryExpanded,
+                    onExpandedChange = { categoryExpanded = !categoryExpanded },
+                ) {
+                    OutlinedTextField(
+                        value = selectedCategory.banglaName,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("খেদমতের ধরন") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        shape = RoundedCornerShape(10.dp),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = categoryExpanded,
+                        onDismissRequest = { categoryExpanded = false },
+                    ) {
+                        KhedmatCategory.entries.forEach { cat ->
+                            DropdownMenuItem(
+                                text = { Text(cat.banglaName) },
+                                onClick = {
+                                    selectedCategory = cat
+                                    categoryExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
                     value = currentKhedmat,
                     onValueChange = { currentKhedmat = it },
                     label = { Text("বর্তমান খেদমত ও প্রতিষ্ঠান") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = district,
+                    onValueChange = { district = it },
+                    label = { Text("নিজ জেলা") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
@@ -247,6 +338,7 @@ fun AddStudentByStaffDialog(
                                 phone = phone,
                                 whatsApp = whatsApp,
                                 dakhilaNumber = dakhilaNumber,
+                                department = selectedDepartment,
                                 batchHijri = batchHijri,
                                 batchEng = batchEng,
                                 supervisedUstadName = supervisedUstadName,

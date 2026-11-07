@@ -17,7 +17,7 @@ import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
 import com.qawmialumni.app.domain.repository.AuthRepository
 import com.qawmialumni.app.presentation.navigation.MainAppScaffold
 import com.qawmialumni.app.presentation.navigation.RoleBasedRouter
-import com.qawmialumni.app.presentation.navigation.SuperAdminDashboardScreen
+import com.qawmialumni.app.presentation.superadmin.SuperAdminDashboardScreen
 import com.qawmialumni.app.presentation.theme.QawmiAlumniTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch

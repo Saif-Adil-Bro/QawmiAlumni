@@ -5,6 +5,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.qawmialumni.app.domain.model.Notice
 import com.qawmialumni.app.domain.model.Ustad
+import com.qawmialumni.app.domain.model.UstadHonorific
 
 @Entity(
     tableName = "ustads",
@@ -14,6 +15,7 @@ data class UstadEntity(
     @PrimaryKey val ustadId: String,
     val madrasaId: String,
     val name: String,
+    val honorific: String,
     val designation: String,
     val photoUrl: String,
     val specialization: String,
@@ -25,6 +27,7 @@ fun UstadEntity.toDomain(): Ustad = Ustad(
     ustadId = ustadId,
     madrasaId = madrasaId,
     name = name,
+    honorific = UstadHonorific.fromWire(honorific),
     designation = designation,
     photoUrl = photoUrl,
     specialization = specialization,
@@ -36,6 +39,7 @@ fun Ustad.toEntity(): UstadEntity = UstadEntity(
     ustadId = ustadId,
     madrasaId = madrasaId,
     name = name,
+    honorific = honorific.wireValue,
     designation = designation,
     photoUrl = photoUrl,
     specialization = specialization,
@@ -57,6 +61,7 @@ data class NoticeEntity(
     val details: String,
     val imageUrl: String,
     val eventDate: String,
+    val rsvpCount: Int,
     val createdByUid: String,
     val createdAt: Long,
 )
@@ -79,6 +84,7 @@ fun Notice.toEntity(): NoticeEntity = NoticeEntity(
     details = details,
     imageUrl = imageUrl,
     eventDate = eventDate,
+    rsvpCount = rsvpUids.size,
     createdByUid = createdByUid,
     createdAt = createdAt,
 )

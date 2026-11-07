@@ -12,7 +12,6 @@ import com.qawmialumni.app.data.remote.dto.ChatMessageDto
 import com.qawmialumni.app.data.remote.dto.ChatRoomDto
 import com.qawmialumni.app.data.remote.dto.ForumPostDto
 import com.qawmialumni.app.data.remote.dto.PostCommentDto
-import com.qawmialumni.app.domain.model.ChatMessage
 import com.qawmialumni.app.domain.model.ChatRoom
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
@@ -22,7 +21,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,14 +42,17 @@ class CommunityRepositoryImpl @Inject constructor(
             query = query.whereEqualTo("category", category.wireValue)
         }
 
-        query = query.orderBy("createdAt", Query.Direction.DESCENDING).limit(30)
+        query = query.orderBy("createdAt", Query.Direction.DESCENDING).limit(40)
 
         val listener = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 trySend(Resource.Error(error.localizedMessage ?: "পোস্ট লোড ত্রুটি", error))
                 return@addSnapshotListener
             }
-            val list = snapshot?.documents?.mapNotNull { it.toObject(ForumPostDto::class.java)?.toDomain() }
+            val list = snapshot?.documents
+                ?.mapNotNull { it.toObject(ForumPostDto::class.java)?.toDomain() }
+                // Pinned posts first, then newest first
+                ?.sortedWith(compareByDescending<ForumPost> { it.isPinned }.thenByDescending { it.createdAt })
                 ?: emptyList()
             trySend(Resource.Success(list))
         }
@@ -85,14 +86,48 @@ class CommunityRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun toggleLikePost(postId: String, currentLikes: Int): Resource<Unit> {
+    override suspend fun toggleLikePost(
+        postId: String,
+        userId: String,
+        isCurrentlyLiked: Boolean,
+    ): Resource<Unit> {
         return try {
-            firestore.collection("forum_posts").document(postId)
-                .update("likesCount", FieldValue.increment(1))
-                .await()
+            val postRef = firestore.collection("forum_posts").document(postId)
+            val updates = if (isCurrentlyLiked) {
+                mapOf(
+                    "likedByUids" to FieldValue.arrayRemove(userId),
+                    "likesCount" to FieldValue.increment(-1),
+                )
+            } else {
+                mapOf(
+                    "likedByUids" to FieldValue.arrayUnion(userId),
+                    "likesCount" to FieldValue.increment(1),
+                )
+            }
+            postRef.update(updates).await()
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "লাইক ব্যর্থ", e)
+        }
+    }
+
+    override suspend fun deletePost(postId: String): Resource<Unit> {
+        return try {
+            firestore.collection("forum_posts").document(postId).delete().await()
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "পোস্ট মুছে ফেলা যায়নি", e)
+        }
+    }
+
+    override suspend fun togglePinPost(postId: String, isPinned: Boolean): Resource<Unit> {
+        return try {
+            firestore.collection("forum_posts").document(postId)
+                .update("isPinned", isPinned)
+                .await()
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "পিন স্ট্যাটাস পরিবর্তন ব্যর্থ", e)
         }
     }
 
@@ -132,7 +167,8 @@ class CommunityRepositoryImpl @Inject constructor(
 
     /**
      * Bucketed Messaging Pattern (Blueprint §5.D.2):
-     * Messages array is kept directly inside the room document to prevent N-reads.
+     * Messages array is kept directly inside the room document to prevent N-reads,
+     * and strictly capped at the latest 50 messages to prevent Firestore 1MB document overflow!
      */
     override fun getChatRooms(userId: String): Flow<Resource<List<ChatRoom>>> = callbackFlow {
         trySend(Resource.Loading)
@@ -182,19 +218,23 @@ class CommunityRepositoryImpl @Inject constructor(
             val timestamp = System.currentTimeMillis()
             val newMsg = ChatMessageDto(senderId = senderId, text = text.trim(), timestamp = timestamp)
 
+            val roomRef = firestore.collection("chat_rooms").document(roomId)
+            val existingDoc = roomRef.get().await()
+            val existingMessages = existingDoc.toObject(ChatRoomDto::class.java)?.recentMessages ?: emptyList()
+            val cappedMessages = (existingMessages + newMsg).takeLast(50)
+
             val roomData = mapOf(
                 "roomId" to roomId,
                 "madrasaId" to madrasaId,
-                "participants" to listOf(senderId, recipientId),
+                "participants" to listOf(senderId, recipientId).distinct(),
                 "participantNames" to mapOf(senderId to senderName, recipientId to recipientName),
                 "participantPhotos" to mapOf(senderId to senderPhoto, recipientId to recipientPhoto),
                 "lastMessage" to text.trim(),
                 "lastTimestamp" to timestamp,
+                "recentMessages" to cappedMessages,
             )
 
-            val roomRef = firestore.collection("chat_rooms").document(roomId)
             roomRef.set(roomData, SetOptions.merge()).await()
-            roomRef.update("recentMessages", FieldValue.arrayUnion(newMsg)).await()
 
             Resource.Success(Unit)
         } catch (e: Exception) {

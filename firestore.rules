@@ -15,7 +15,8 @@ service cloud.firestore {
       allow create, delete: if isSignedIn() && currentUser().role == "super_admin";
       allow update: if isSignedIn() && (
         currentUser().role == "super_admin" || 
-        (currentUser().role == "madrasa_admin" && currentUser().madrasaId == madrasaId)
+        (currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == madrasaId) ||
+        (request.auth.token.email in resource.data.pendingAdminEmails)
       );
     }
 
@@ -23,8 +24,8 @@ service cloud.firestore {
       allow read: if isSignedIn();
       
       allow create: if isSignedIn() && (
-        (request.auth.uid == userId && request.resource.data.role == "alumni" && request.resource.data.status in ["none", "pending"]) ||
-        (currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == request.resource.data.madrasaId)
+        request.auth.uid == userId ||
+        (currentUser().role in ["madrasa_admin", "staff", "super_admin"])
       );
 
       allow update: if isSignedIn() && (
@@ -32,7 +33,12 @@ service cloud.firestore {
         (currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == resource.data.madrasaId) ||
         (request.auth.uid == userId && 
          request.resource.data.role == resource.data.role && 
-         request.resource.data.status == resource.data.status)
+         request.resource.data.status in [resource.data.status, "pending"])
+      );
+
+      allow delete: if isSignedIn() && (
+        userId.matches('STUDENT_.*') ||
+        currentUser().role in ["super_admin", "madrasa_admin"]
       );
     }
 
@@ -47,8 +53,10 @@ service cloud.firestore {
     match /forum_posts/{postId} {
       allow read: if isSignedIn() && currentUser().status == "approved";
       allow create: if isSignedIn() && currentUser().status == "approved";
-      allow update, delete: if isSignedIn() && (
+      allow update: if isSignedIn() && currentUser().status == "approved";
+      allow delete: if isSignedIn() && (
         request.auth.uid == resource.data.authorUid ||
+        currentUser().role == "super_admin" ||
         (currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == resource.data.madrasaId)
       );
 
@@ -59,7 +67,8 @@ service cloud.firestore {
 
     match /notices/{noticeId} {
       allow read: if isSignedIn() && currentUser().status == "approved";
-      allow write: if isSignedIn() && currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == request.resource.data.madrasaId;
+      allow create, delete: if isSignedIn() && currentUser().role in ["madrasa_admin", "staff", "super_admin"];
+      allow update: if isSignedIn() && currentUser().status == "approved";
     }
 
     match /chat_rooms/{roomId} {

@@ -2,7 +2,6 @@ package com.qawmialumni.app.domain.repository
 
 import android.net.Uri
 import com.qawmialumni.app.core.util.Resource
-import com.qawmialumni.app.domain.model.ChatMessage
 import com.qawmialumni.app.domain.model.ChatRoom
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
@@ -21,7 +20,15 @@ interface CommunityRepository {
         imageUri: Uri?,
     ): Resource<Unit>
 
-    suspend fun toggleLikePost(postId: String, currentLikes: Int): Resource<Unit>
+    suspend fun toggleLikePost(
+        postId: String,
+        userId: String,
+        isCurrentlyLiked: Boolean,
+    ): Resource<Unit>
+
+    suspend fun deletePost(postId: String): Resource<Unit>
+
+    suspend fun togglePinPost(postId: String, isPinned: Boolean): Resource<Unit>
 
     fun getComments(postId: String): Flow<Resource<List<PostComment>>>
 

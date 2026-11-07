@@ -90,19 +90,12 @@ jobs:
           fi
           echo "Found APK to upload: $APK_PATH"
 
-          if [ -n "$APPETIZE_PUBLIC_KEY" ]; then
-            echo "Updating existing Appetize app: $APPETIZE_PUBLIC_KEY"
-            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.appetize.io/v1/apps/$APPETIZE_PUBLIC_KEY" \
-              -u "$APPETIZE_TOKEN:" \
-              -F "file=@$APK_PATH" \
-              -F "platform=android")
-          else
-            echo "Uploading new Appetize app..."
-            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.appetize.io/v1/apps" \
-              -u "$APPETIZE_TOKEN:" \
-              -F "file=@$APK_PATH" \
-              -F "platform=android")
-          fi
+          APPETIZE_KEY="${APPETIZE_PUBLIC_KEY:-4j27hpjo2ribuk6r4w7lmj2bli}"
+          echo "Updating Appetize app: $APPETIZE_KEY"
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.appetize.io/v1/apps/$APPETIZE_KEY" \
+            -u "$APPETIZE_TOKEN:" \
+            -F "file=@$APK_PATH" \
+            -F "platform=android")
 
           HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d':' -f2)
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')

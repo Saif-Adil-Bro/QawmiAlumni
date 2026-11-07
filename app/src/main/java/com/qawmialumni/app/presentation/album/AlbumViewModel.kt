@@ -5,19 +5,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
 import com.qawmialumni.app.core.util.Resource
+import com.qawmialumni.app.domain.model.ChatRoom
+import com.qawmialumni.app.domain.model.GraduationDepartment
 import com.qawmialumni.app.domain.model.KhedmatCategory
 import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.UserStatus
 import com.qawmialumni.app.domain.repository.AdminRepository
 import com.qawmialumni.app.domain.repository.AlumniRepository
+import com.qawmialumni.app.domain.repository.AuthRepository
+import com.qawmialumni.app.domain.repository.CommunityRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -26,17 +29,30 @@ import javax.inject.Inject
 
 data class AlbumFilterState(
     val batch: String = "",
-    val ustadId: String = "",
+    val ustadName: String = "",
     val bloodGroup: String = "",
+    val department: String = "",
+    val khedmatCategory: String = "",
     val district: String = "",
     val query: String = "",
-)
+) {
+    val hasActiveFilters: Boolean
+        get() = batch.isNotBlank() ||
+            ustadName.isNotBlank() ||
+            bloodGroup.isNotBlank() ||
+            department.isNotBlank() ||
+            khedmatCategory.isNotBlank() ||
+            district.isNotBlank() ||
+            query.isNotBlank()
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AlbumViewModel @Inject constructor(
     private val alumniRepository: AlumniRepository,
     private val adminRepository: AdminRepository,
+    private val authRepository: AuthRepository,
+    private val communityRepository: CommunityRepository,
     val dataStore: UserPreferencesDataStore,
 ) : ViewModel() {
 
@@ -55,6 +71,12 @@ class AlbumViewModel @Inject constructor(
     private val _addStudentState = MutableStateFlow<Resource<Unit>?>(null)
     val addStudentState: StateFlow<Resource<Unit>?> = _addStudentState.asStateFlow()
 
+    private val _selfProfileState = MutableStateFlow<Resource<UserProfile>?>(null)
+    val selfProfileState: StateFlow<Resource<UserProfile>?> = _selfProfileState.asStateFlow()
+
+    private val _currentSelfProfile = MutableStateFlow<UserProfile?>(null)
+    val currentSelfProfile: StateFlow<UserProfile?> = _currentSelfProfile.asStateFlow()
+
     // Filtered alumni stream from local Room Database (Zero Firestore reads during browsing!)
     val alumniList: StateFlow<List<UserProfile>> = dataStore.userSession
         .flatMapLatest { userSession ->
@@ -65,8 +87,10 @@ class AlbumViewModel @Inject constructor(
                     alumniRepository.getAlumni(
                         madrasaId = userSession.madrasaId,
                         batch = filter.batch,
-                        ustadId = filter.ustadId,
+                        ustadName = filter.ustadName,
                         bloodGroup = filter.bloodGroup,
+                        department = filter.department,
+                        khedmatCategory = filter.khedmatCategory,
                         district = filter.district,
                         query = filter.query,
                     )
@@ -90,15 +114,15 @@ class AlbumViewModel @Inject constructor(
             initialValue = emptyList(),
         )
 
-    val ustads = dataStore.userSession
+    val ustadNames: StateFlow<List<String>> = dataStore.userSession
         .flatMapLatest { userSession ->
-            if (userSession.madrasaId.isBlank()) flowOf(Resource.Success(emptyList()))
-            else adminRepository.getUstads(userSession.madrasaId)
+            if (userSession.madrasaId.isBlank()) flowOf(emptyList())
+            else alumniRepository.getUstadNames(userSession.madrasaId)
         }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = Resource.Loading,
+            initialValue = emptyList(),
         )
 
     init {
@@ -132,9 +156,19 @@ class AlbumViewModel @Inject constructor(
         _filterState.value = _filterState.value.copy(bloodGroup = if (current == bg) "" else bg)
     }
 
-    fun selectUstad(ustadId: String) {
-        val current = _filterState.value.ustadId
-        _filterState.value = _filterState.value.copy(ustadId = if (current == ustadId) "" else ustadId)
+    fun selectDepartment(deptWire: String) {
+        val current = _filterState.value.department
+        _filterState.value = _filterState.value.copy(department = if (current == deptWire) "" else deptWire)
+    }
+
+    fun selectKhedmatCategory(catWire: String) {
+        val current = _filterState.value.khedmatCategory
+        _filterState.value = _filterState.value.copy(khedmatCategory = if (current == catWire) "" else catWire)
+    }
+
+    fun selectUstadName(ustadName: String) {
+        val current = _filterState.value.ustadName
+        _filterState.value = _filterState.value.copy(ustadName = if (current == ustadName) "" else ustadName)
     }
 
     fun resetFilters() {
@@ -148,6 +182,7 @@ class AlbumViewModel @Inject constructor(
         phone: String,
         whatsApp: String,
         dakhilaNumber: String,
+        department: GraduationDepartment,
         batchHijri: String,
         batchEng: String,
         supervisedUstadName: String,
@@ -169,6 +204,7 @@ class AlbumViewModel @Inject constructor(
                 madrasaId = madrasaId,
                 status = UserStatus.APPROVED,
                 dakhilaNumber = dakhilaNumber.trim(),
+                department = department,
                 batchYearHijri = batchHijri.trim(),
                 batchYearEng = batchEng.trim(),
                 supervisedByUstadName = supervisedUstadName.trim(),
@@ -184,5 +220,73 @@ class AlbumViewModel @Inject constructor(
 
     fun resetAddStudentState() {
         _addStudentState.value = null
+    }
+
+    // Role promotion/demotion by Madrasa Admin (Batch Representative / Staff)
+    fun toggleStaffRole(alumni: UserProfile, onDone: () -> Unit) {
+        val newRole = if (alumni.role == UserRole.STAFF) UserRole.ALUMNI else UserRole.STAFF
+        val madrasaId = alumni.madrasaId.ifBlank { session.value?.madrasaId.orEmpty() }
+        viewModelScope.launch {
+            adminRepository.updateMemberRole(alumni.uid, madrasaId, newRole)
+            if (madrasaId.isNotBlank()) {
+                alumniRepository.syncAlumniFromRemote(madrasaId)
+            }
+            onDone()
+        }
+    }
+
+    // Direct In-App Chat message from Alumni Detail Sheet
+    fun sendDirectMessageToAlumni(
+        targetAlumni: UserProfile,
+        messageText: String,
+        onSent: () -> Unit,
+    ) {
+        val currentSession = session.value ?: return
+        if (currentSession.uid.isBlank() || messageText.isBlank()) return
+        val roomId = ChatRoom.buildRoomId(currentSession.uid, targetAlumni.uid)
+        viewModelScope.launch {
+            communityRepository.sendMessage(
+                roomId = roomId,
+                madrasaId = currentSession.madrasaId,
+                senderId = currentSession.uid,
+                recipientId = targetAlumni.uid,
+                senderName = currentSession.name,
+                recipientName = targetAlumni.name,
+                senderPhoto = currentSession.photoUrl,
+                recipientPhoto = targetAlumni.photoUrl,
+                text = messageText.trim(),
+            )
+            onSent()
+        }
+    }
+
+    // Self Profile Load & Update
+    fun loadSelfProfile() {
+        val uid = session.value?.uid ?: return
+        if (uid.isBlank()) return
+        viewModelScope.launch {
+            when (val res = authRepository.fetchUserProfile(uid)) {
+                is Resource.Success -> _currentSelfProfile.value = res.data
+                else -> Unit
+            }
+        }
+    }
+
+    fun updateSelfProfile(
+        updatedProfile: UserProfile,
+        newPhotoUri: Uri?,
+    ) {
+        viewModelScope.launch {
+            _selfProfileState.value = Resource.Loading
+            val res = alumniRepository.updateSelfProfile(updatedProfile, newPhotoUri)
+            _selfProfileState.value = res
+            if (res is Resource.Success) {
+                _currentSelfProfile.value = res.data
+            }
+        }
+    }
+
+    fun resetSelfProfileState() {
+        _selfProfileState.value = null
     }
 }

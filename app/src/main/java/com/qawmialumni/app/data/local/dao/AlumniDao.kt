@@ -26,26 +26,29 @@ interface AlumniDao {
     fun observeByUid(uid: String): Flow<AlumniEntity?>
 
     /**
-     * Smart filtering query (Blueprint §7):
-     * Matches batch, ustad, blood group, district, and free-text search across name/father/khedmat.
-     * Empty string parameter means "all / no filter applied".
+     * Complete Smart Filtering Query (Blueprint §7.2):
+     * Supports Hijri batch, supervised Ustad, blood group, graduation department, khedmat category, district, and search query.
      */
     @Query("""
         SELECT * FROM alumni 
         WHERE madrasaId = :madrasaId 
           AND status = 'approved'
           AND (:batch = '' OR batchYearHijri = :batch)
-          AND (:ustadId = '' OR supervisedByUstadId = :ustadId)
+          AND (:ustadName = '' OR supervisedByUstadName LIKE '%' || :ustadName || '%')
           AND (:bloodGroup = '' OR bloodGroup = :bloodGroup)
-          AND (:district = '' OR district = :district)
-          AND (:query = '' OR (name LIKE '%' || :query || '%' OR fatherName LIKE '%' || :query || '%' OR currentKhedmat LIKE '%' || :query || '%'))
-        ORDER BY name ASC
+          AND (:department = '' OR department = :department)
+          AND (:khedmatCategory = '' OR khedmatCategory = :khedmatCategory)
+          AND (:district = '' OR district LIKE '%' || :district || '%')
+          AND (:query = '' OR (name LIKE '%' || :query || '%' OR fatherName LIKE '%' || :query || '%' OR currentKhedmat LIKE '%' || :query || '%' OR dakhilaNumber LIKE '%' || :query || '%'))
+        ORDER BY batchYearHijri DESC, name ASC
     """)
     fun filterAlumni(
         madrasaId: String,
         batch: String = "",
-        ustadId: String = "",
+        ustadName: String = "",
         bloodGroup: String = "",
+        department: String = "",
+        khedmatCategory: String = "",
         district: String = "",
         query: String = "",
     ): Flow<List<AlumniEntity>>
@@ -55,6 +58,9 @@ interface AlumniDao {
 
     @Query("SELECT DISTINCT batchYearHijri FROM alumni WHERE madrasaId = :madrasaId AND batchYearHijri != '' ORDER BY batchYearHijri DESC")
     fun getDistinctBatches(madrasaId: String): Flow<List<String>>
+
+    @Query("SELECT DISTINCT supervisedByUstadName FROM alumni WHERE madrasaId = :madrasaId AND supervisedByUstadName != '' ORDER BY supervisedByUstadName ASC")
+    fun getDistinctUstadNames(madrasaId: String): Flow<List<String>>
 
     @Query("SELECT COUNT(*) FROM alumni WHERE madrasaId = :madrasaId AND status = 'approved'")
     fun getApprovedCount(madrasaId: String): Flow<Int>

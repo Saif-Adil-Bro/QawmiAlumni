@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.qawmialumni.app.core.network.ImageUploadRepository
 import com.qawmialumni.app.core.util.ImageTarget
 import com.qawmialumni.app.core.util.Resource
+import com.qawmialumni.app.domain.model.GraduationDepartment
 import com.qawmialumni.app.domain.model.KhedmatCategory
 import com.qawmialumni.app.domain.model.Madrasa
 import com.qawmialumni.app.domain.model.UserProfile
@@ -64,6 +65,7 @@ class JoinMadrasaViewModel @Inject constructor(
         phone: String,
         whatsApp: String,
         dakhilaNumber: String,
+        department: GraduationDepartment,
         batchHijri: String,
         batchEng: String,
         supervisedUstadName: String,
@@ -109,6 +111,7 @@ class JoinMadrasaViewModel @Inject constructor(
                 photoUrl = photoUrl,
                 madrasaId = madrasa.madrasaId,
                 dakhilaNumber = dakhilaNumber.trim(),
+                department = department,
                 batchYearHijri = batchHijri.trim(),
                 batchYearEng = batchEng.trim(),
                 supervisedByUstadName = supervisedUstadName.trim(),

@@ -9,13 +9,17 @@ interface AlumniRepository {
     fun getAlumni(
         madrasaId: String,
         batch: String = "",
-        ustadId: String = "",
+        ustadName: String = "",
         bloodGroup: String = "",
+        department: String = "",
+        khedmatCategory: String = "",
         district: String = "",
         query: String = "",
     ): Flow<List<UserProfile>>
 
     fun getBatches(madrasaId: String): Flow<List<String>>
+
+    fun getUstadNames(madrasaId: String): Flow<List<String>>
 
     suspend fun syncAlumniFromRemote(madrasaId: String): Resource<Int>
 
@@ -23,4 +27,9 @@ interface AlumniRepository {
         student: UserProfile,
         photoUri: Uri?,
     ): Resource<Unit>
+
+    suspend fun updateSelfProfile(
+        profile: UserProfile,
+        newPhotoUri: Uri?,
+    ): Resource<UserProfile>
 }

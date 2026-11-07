@@ -4,10 +4,10 @@ import android.net.Uri
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.SetOptions
 import com.qawmialumni.app.core.network.ImageUploadRepository
 import com.qawmialumni.app.core.util.ImageTarget
 import com.qawmialumni.app.core.util.Resource
+import com.qawmialumni.app.data.local.dao.AlumniDao
 import com.qawmialumni.app.data.local.dao.NoticeDao
 import com.qawmialumni.app.data.local.dao.UstadDao
 import com.qawmialumni.app.data.local.entity.toEntity
@@ -18,6 +18,7 @@ import com.qawmialumni.app.data.remote.dto.UstadDto
 import com.qawmialumni.app.domain.model.Madrasa
 import com.qawmialumni.app.domain.model.Notice
 import com.qawmialumni.app.domain.model.UserProfile
+import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.UserStatus
 import com.qawmialumni.app.domain.model.Ustad
 import com.qawmialumni.app.domain.repository.AdminRepository
@@ -35,6 +36,7 @@ class AdminRepositoryImpl @Inject constructor(
     private val imageUploadRepository: ImageUploadRepository,
     private val ustadDao: UstadDao,
     private val noticeDao: NoticeDao,
+    private val alumniDao: AlumniDao,
 ) : AdminRepository {
 
     override suspend fun createMadrasa(
@@ -47,7 +49,7 @@ class AdminRepositoryImpl @Inject constructor(
     ): Resource<Madrasa> {
         return try {
             val normalizedCode = code.trim().uppercase()
-            // Check code uniqueness
+            val normalizedAdminEmail = adminEmail.trim().lowercase()
             val existing = firestore.collection("madrasas")
                 .whereEqualTo("code", normalizedCode)
                 .limit(1)
@@ -67,6 +69,16 @@ class AdminRepositoryImpl @Inject constructor(
             }
 
             val madrasaId = "MADRASA_${System.currentTimeMillis()}"
+            var assignedAdminUid: String? = null
+            if (normalizedAdminEmail.isNotBlank()) {
+                val userQuery = firestore.collection("users")
+                    .whereEqualTo("email", normalizedAdminEmail)
+                    .limit(1)
+                    .get()
+                    .await()
+                assignedAdminUid = userQuery.documents.firstOrNull()?.id
+            }
+
             val madrasa = Madrasa(
                 madrasaId = madrasaId,
                 code = normalizedCode,
@@ -74,6 +86,12 @@ class AdminRepositoryImpl @Inject constructor(
                 logoUrl = logoUrl,
                 address = address.trim(),
                 establishedYear = establishedYear.trim(),
+                pendingAdminEmails = if (assignedAdminUid == null && normalizedAdminEmail.isNotBlank()) {
+                    listOf(normalizedAdminEmail)
+                } else {
+                    emptyList()
+                },
+                adminUids = listOfNotNull(assignedAdminUid),
                 totalAlumniCount = 0,
                 createdAt = System.currentTimeMillis(),
             )
@@ -82,26 +100,16 @@ class AdminRepositoryImpl @Inject constructor(
                 .set(MadrasaDto.fromDomain(madrasa))
                 .await()
 
-            // If an admin email was provided, assign madrasa_admin role if user already exists
-            if (adminEmail.isNotBlank()) {
-                val userQuery = firestore.collection("users")
-                    .whereEqualTo("email", adminEmail.trim().lowercase())
-                    .limit(1)
-                    .get()
-                    .await()
-                userQuery.documents.firstOrNull()?.let { doc ->
-                    firestore.collection("users").document(doc.id)
-                        .update(
-                            mapOf(
-                                "role" to "madrasa_admin",
-                                "madrasaId" to madrasaId,
-                                "status" to "approved",
-                            )
-                        ).await()
-                    firestore.collection("madrasas").document(madrasaId)
-                        .update("adminUids", FieldValue.arrayUnion(doc.id))
-                        .await()
-                }
+            if (assignedAdminUid != null) {
+                firestore.collection("users").document(assignedAdminUid)
+                    .update(
+                        mapOf(
+                            "role" to UserRole.MADRASA_ADMIN.wireValue,
+                            "madrasaId" to madrasaId,
+                            "status" to UserStatus.APPROVED.wireValue,
+                            "updatedAt" to System.currentTimeMillis(),
+                        )
+                    ).await()
             }
 
             Resource.Success(madrasa)
@@ -145,18 +153,24 @@ class AdminRepositoryImpl @Inject constructor(
 
     override suspend fun approveJoinRequest(userId: String, madrasaId: String): Resource<Unit> {
         return try {
+            val now = System.currentTimeMillis()
             firestore.collection("users").document(userId)
                 .update(
                     mapOf(
                         "status" to UserStatus.APPROVED.wireValue,
-                        "updatedAt" to System.currentTimeMillis(),
+                        "updatedAt" to now,
                     )
                 ).await()
 
-            // Increment alumni counter
             firestore.collection("madrasas").document(madrasaId)
                 .update("totalAlumniCount", FieldValue.increment(1))
                 .await()
+
+            // Immediately sync approved student into local Room DB
+            val doc = firestore.collection("users").document(userId).get().await()
+            doc.toObject(UserDto::class.java)?.toDomain()?.let {
+                alumniDao.upsertSingle(it.toEntity())
+            }
 
             Resource.Success(Unit)
         } catch (e: Exception) {
@@ -179,6 +193,39 @@ class AdminRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun updateMemberRole(
+        userId: String,
+        madrasaId: String,
+        newRole: UserRole,
+    ): Resource<Unit> {
+        return try {
+            val now = System.currentTimeMillis()
+            firestore.collection("users").document(userId)
+                .update(
+                    mapOf(
+                        "role" to newRole.wireValue,
+                        "updatedAt" to now,
+                    )
+                ).await()
+
+            val staffUpdate = if (newRole == UserRole.STAFF) {
+                FieldValue.arrayUnion(userId)
+            } else {
+                FieldValue.arrayRemove(userId)
+            }
+            firestore.collection("madrasas").document(madrasaId)
+                .update("staffUids", staffUpdate)
+                .await()
+
+            alumniDao.getByUid(userId)?.let { existing ->
+                alumniDao.upsertSingle(existing.copy(role = newRole.wireValue, updatedAt = now))
+            }
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "দায়িত্ব পরিবর্তন করা যায়নি", e)
+        }
+    }
+
     override suspend fun addUstad(ustad: Ustad, photoUri: Uri?): Resource<Unit> {
         return try {
             var photoUrl = ustad.photoUrl
@@ -197,9 +244,7 @@ class AdminRepositoryImpl @Inject constructor(
                 .set(UstadDto.fromDomain(finalUstad))
                 .await()
 
-            // Cache locally to Room
             ustadDao.upsertUstads(listOf(finalUstad.toEntity()))
-
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "উস্তাদ যুক্ত করা যায়নি", e)
@@ -245,9 +290,7 @@ class AdminRepositoryImpl @Inject constructor(
                 .set(NoticeDto.fromDomain(finalNotice))
                 .await()
 
-            // Cache locally to Room
             noticeDao.upsertNotices(listOf(finalNotice.toEntity()))
-
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "নোটিশ প্রকাশ করা যায়নি", e)
@@ -269,5 +312,25 @@ class AdminRepositoryImpl @Inject constructor(
                 trySend(Resource.Success(list))
             }
         awaitClose { listener.remove() }
+    }
+
+    override suspend fun toggleNoticeRsvp(
+        noticeId: String,
+        userId: String,
+        isCurrentlyGoing: Boolean,
+    ): Resource<Unit> {
+        return try {
+            val updateOp = if (isCurrentlyGoing) {
+                FieldValue.arrayRemove(userId)
+            } else {
+                FieldValue.arrayUnion(userId)
+            }
+            firestore.collection("notices").document(noticeId)
+                .update("rsvpUids", updateOp)
+                .await()
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "অংশগ্রহণ নিশ্চিত করা যায়নি", e)
+        }
     }
 }

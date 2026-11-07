@@ -3,12 +3,14 @@ package com.qawmialumni.app.data.remote.dto
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.qawmialumni.app.domain.model.Notice
 import com.qawmialumni.app.domain.model.Ustad
+import com.qawmialumni.app.domain.model.UstadHonorific
 
 @IgnoreExtraProperties
 data class UstadDto(
     var ustadId: String = "",
     var madrasaId: String = "",
     var name: String = "",
+    var honorific: String = "DB",
     var designation: String = "",
     var photoUrl: String = "",
     var specialization: String = "",
@@ -19,6 +21,7 @@ data class UstadDto(
         ustadId = ustadId,
         madrasaId = madrasaId,
         name = name,
+        honorific = UstadHonorific.fromWire(honorific),
         designation = designation,
         photoUrl = photoUrl,
         specialization = specialization,
@@ -31,6 +34,7 @@ data class UstadDto(
             ustadId = ustad.ustadId,
             madrasaId = ustad.madrasaId,
             name = ustad.name,
+            honorific = ustad.honorific.wireValue,
             designation = ustad.designation,
             photoUrl = ustad.photoUrl,
             specialization = ustad.specialization,
@@ -48,6 +52,7 @@ data class NoticeDto(
     var details: String = "",
     var imageUrl: String = "",
     var eventDate: String = "",
+    var rsvpUids: List<String> = emptyList(),
     var createdByUid: String = "",
     var createdAt: Long = 0L,
 ) {
@@ -58,6 +63,7 @@ data class NoticeDto(
         details = details,
         imageUrl = imageUrl,
         eventDate = eventDate,
+        rsvpUids = rsvpUids,
         createdByUid = createdByUid,
         createdAt = createdAt,
     )
@@ -70,6 +76,7 @@ data class NoticeDto(
             details = notice.details,
             imageUrl = notice.imageUrl,
             eventDate = notice.eventDate,
+            rsvpUids = notice.rsvpUids,
             createdByUid = notice.createdByUid,
             createdAt = notice.createdAt,
         )

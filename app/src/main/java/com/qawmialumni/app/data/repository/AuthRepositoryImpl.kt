@@ -2,6 +2,7 @@ package com.qawmialumni.app.data.repository
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
@@ -55,18 +56,87 @@ class AuthRepositoryImpl @Inject constructor(
         phone: String,
     ): Resource<UserProfile> {
         return try {
-            val result = auth.createUserWithEmailAndPassword(email.trim(), pass).await()
+            val normalizedEmail = email.trim().lowercase()
+            val cleanPhone = phone.trim()
+            val result = auth.createUserWithEmailAndPassword(normalizedEmail, pass).await()
             val user = result.user ?: return Resource.Error("রেজিস্ট্রেশন ব্যর্থ হয়েছে")
+
+            // 1. Check if Super Admin pre-assigned this email as a madrasa_admin
+            val pendingAdminMadrasaQuery = firestore.collection("madrasas")
+                .whereArrayContains("pendingAdminEmails", normalizedEmail)
+                .limit(1)
+                .get()
+                .await()
+
+            val assignedMadrasaDoc = pendingAdminMadrasaQuery.documents.firstOrNull()
+            if (assignedMadrasaDoc != null) {
+                val madrasaId = assignedMadrasaDoc.id
+                val adminProfile = UserProfile(
+                    uid = user.uid,
+                    name = name.trim(),
+                    email = normalizedEmail,
+                    phone = cleanPhone,
+                    whatsApp = cleanPhone,
+                    role = UserRole.MADRASA_ADMIN,
+                    madrasaId = madrasaId,
+                    status = UserStatus.APPROVED,
+                    updatedAt = System.currentTimeMillis(),
+                )
+                firestore.collection("users").document(user.uid)
+                    .set(UserDto.fromDomain(adminProfile))
+                    .await()
+                firestore.collection("madrasas").document(madrasaId)
+                    .update(
+                        mapOf(
+                            "adminUids" to FieldValue.arrayUnion(user.uid),
+                            "pendingAdminEmails" to FieldValue.arrayRemove(normalizedEmail),
+                        )
+                    ).await()
+                dataStore.saveUserSession(adminProfile)
+                return Resource.Success(adminProfile)
+            }
+
+            // 2. Check if Staff/Admin already pre-registered this student by phone or email (Flow 2 auto-linking!)
+            val preRegQuery = if (cleanPhone.isNotBlank()) {
+                firestore.collection("users")
+                    .whereEqualTo("phone", cleanPhone)
+                    .whereEqualTo("status", UserStatus.APPROVED.wireValue)
+                    .limit(1)
+                    .get()
+                    .await()
+            } else null
+
+            val existingDoc = preRegQuery?.documents?.firstOrNull { it.id.startsWith("STUDENT_") }
+            if (existingDoc != null) {
+                val oldProfile = existingDoc.toObject(UserDto::class.java)?.toDomain()
+                if (oldProfile != null) {
+                    val linkedProfile = oldProfile.copy(
+                        uid = user.uid,
+                        email = normalizedEmail,
+                        name = oldProfile.name.ifBlank { name.trim() },
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                    // Migrate to real Firebase Auth UID and remove placeholder document
+                    firestore.collection("users").document(user.uid)
+                        .set(UserDto.fromDomain(linkedProfile))
+                        .await()
+                    firestore.collection("users").document(existingDoc.id).delete().await()
+                    dataStore.saveUserSession(linkedProfile)
+                    return Resource.Success(linkedProfile)
+                }
+            }
+
+            // 3. Normal new alumni registration
             val profile = UserProfile(
                 uid = user.uid,
                 name = name.trim(),
-                email = user.email.orEmpty(),
-                phone = phone.trim(),
+                email = normalizedEmail,
+                phone = cleanPhone,
+                whatsApp = cleanPhone,
                 role = UserRole.ALUMNI,
                 status = UserStatus.NONE,
                 updatedAt = System.currentTimeMillis(),
             )
-            // Persist initial user document to Firestore
             firestore.collection("users").document(user.uid)
                 .set(UserDto.fromDomain(profile))
                 .await()
@@ -83,7 +153,6 @@ class AuthRepositoryImpl @Inject constructor(
             val result = auth.signInWithCredential(credential).await()
             val user = result.user ?: return Resource.Error("Google সাইন-ইন ব্যর্থ হয়েছে")
 
-            // Check if user document already exists
             val doc = firestore.collection("users").document(user.uid).get().await()
             val profile = if (doc.exists()) {
                 doc.toObject(UserDto::class.java)?.toDomain() ?: UserProfile(uid = user.uid)
@@ -91,7 +160,7 @@ class AuthRepositoryImpl @Inject constructor(
                 val newProfile = UserProfile(
                     uid = user.uid,
                     name = user.displayName.orEmpty(),
-                    email = user.email.orEmpty(),
+                    email = user.email.orEmpty().lowercase(),
                     photoUrl = user.photoUrl?.toString().orEmpty(),
                     role = UserRole.ALUMNI,
                     status = UserStatus.NONE,
