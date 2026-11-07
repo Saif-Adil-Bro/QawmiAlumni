@@ -75,11 +75,15 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
 
       - name: Deploy Preview to Appetize.io
-        if: ${{ secrets.APPETIZE_API_TOKEN != '' }}
         env:
           APPETIZE_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
           APPETIZE_PUBLIC_KEY: ${{ secrets.APPETIZE_PUBLIC_KEY }}
         run: |
+          if [ -z "$APPETIZE_TOKEN" ]; then
+            echo "APPETIZE_API_TOKEN secret is not configured. Skipping Appetize deployment."
+            exit 0
+          fi
+
           APK_PATH=$(find app/build/outputs/apk/debug -name "*universal*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
             APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
