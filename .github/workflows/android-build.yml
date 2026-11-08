@@ -61,18 +61,58 @@ jobs:
             ./gradlew assembleRelease --no-daemon --stacktrace || (echo "Retrying assembleRelease after transient error..." && sleep 5 && ./gradlew assembleRelease --no-daemon --stacktrace)
           fi
 
-      - name: Upload Debug APK Artifact
+      - name: Organize & Rename Split APKs
+        run: |
+          mkdir -p build-apks
+          # Find and copy each specific ABI apk
+          cp $(find app/build/outputs/apk/debug -name "*universal*.apk" | head -n 1) build-apks/QawmiAlumni-Universal-AllDevices.apk || true
+          cp $(find app/build/outputs/apk/debug -name "*arm64-v8a*.apk" | head -n 1) build-apks/QawmiAlumni-ARM64-ModernPhones.apk || true
+          cp $(find app/build/outputs/apk/debug -name "*armeabi-v7a*.apk" | head -n 1) build-apks/QawmiAlumni-ARMv7-OlderPhones.apk || true
+          cp $(find app/build/outputs/apk/debug -name "*x86_64*.apk" | head -n 1) build-apks/QawmiAlumni-x86_64-Emulators.apk || true
+
+          echo "### 📦 Generated APK Files (পৃথক ৪টি এপিকে)" >> $GITHUB_STEP_SUMMARY
+          echo "| এপিকে নাম | ফাইল | উপযুক্ত ডিভাইস |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Universal (সর্বজনীন)** | \`QawmiAlumni-Universal-AllDevices.apk\` | যেকোনো অ্যান্ড্রয়েড ফোন (সব ডিভাইসে চলবে) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **ARM64 (আধুনিক)** | \`QawmiAlumni-ARM64-ModernPhones.apk\` | আধুনিক ৬৪-বিট স্মার্টফোন (স্যামসাং, শাওমি ইত্যাদি) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **ARMv7 (পুরাতন)** | \`QawmiAlumni-ARMv7-OlderPhones.apk\` | পুরাতন / লো-এন্ড ৩২-বিট স্মার্টফোন |" >> $GITHUB_STEP_SUMMARY
+          echo "| **x86_64 (এমুলেটর)** | \`QawmiAlumni-x86_64-Emulators.apk\` | পিসি / ল্যাপটপ এমুলেটর (BlueStacks ইত্যাদি) |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Universal APK (সব ডিভাইসের জন্য)
         uses: actions/upload-artifact@v4
         with:
-          name: Qawmi-Alumni-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: 1-QawmiAlumni-Universal-AllDevices
+          path: build-apks/QawmiAlumni-Universal-AllDevices.apk
+          if-no-files-found: warn
 
-      - name: Upload Signed Release APK Artifact (Slim R8 Optimized)
+      - name: Upload ARM64 APK (আধুনিক স্মার্টফোনের জন্য)
+        uses: actions/upload-artifact@v4
+        with:
+          name: 2-QawmiAlumni-ARM64-ModernPhones
+          path: build-apks/QawmiAlumni-ARM64-ModernPhones.apk
+          if-no-files-found: warn
+
+      - name: Upload ARMv7 APK (পুরাতন স্মার্টফোনের জন্য)
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3-QawmiAlumni-ARMv7-OlderPhones
+          path: build-apks/QawmiAlumni-ARMv7-OlderPhones.apk
+          if-no-files-found: warn
+
+      - name: Upload x86_64 APK (পিসি এমুলেটরের জন্য)
+        uses: actions/upload-artifact@v4
+        with:
+          name: 4-QawmiAlumni-x86_64-Emulators
+          path: build-apks/QawmiAlumni-x86_64-Emulators.apk
+          if-no-files-found: warn
+
+      - name: Upload Signed Release APK Artifact (If Available)
         if: hashFiles('app/release-keystore.jks') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: Qawmi-Alumni-Release-Slim-APK
+          name: QawmiAlumni-Release-Signed-APK
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
 
       - name: Deploy Preview to Appetize.io
         env:
