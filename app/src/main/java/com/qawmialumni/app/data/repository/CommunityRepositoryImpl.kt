@@ -16,6 +16,7 @@ import com.qawmialumni.app.domain.model.ChatRoom
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
 import com.qawmialumni.app.domain.model.PostComment
+import com.qawmialumni.app.domain.model.VerificationStatus
 import com.qawmialumni.app.domain.repository.CommunityRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -35,6 +36,7 @@ class CommunityRepositoryImpl @Inject constructor(
     override fun getForumPosts(
         madrasaId: String,
         category: ForumCategory?,
+        includePendingForUid: String,
     ): Flow<Resource<List<ForumPost>>> = callbackFlow {
         trySend(Resource.Loading)
         // Single-field equality filter ONLY — prevents FAILED_PRECONDITION (composite index error)!
@@ -44,7 +46,12 @@ class CommunityRepositoryImpl @Inject constructor(
         val listener = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 val fallbackList = localPostsFallback.values
-                    .filter { it.madrasaId == madrasaId && (category == null || it.category == category) }
+                    .filter {
+                        it.madrasaId == madrasaId &&
+                            (category == null || it.category == category) &&
+                            (it.approvalStatus == VerificationStatus.APPROVED ||
+                                (includePendingForUid.isNotBlank() && it.authorUid == includePendingForUid))
+                    }
                     .sortedWith(compareByDescending<ForumPost> { it.isPinned }.thenByDescending { it.createdAt })
                 trySend(Resource.Success(fallbackList))
                 return@addSnapshotListener
@@ -56,12 +63,100 @@ class CommunityRepositoryImpl @Inject constructor(
 
             val merged = (remoteList + localPostsFallback.values.filter { it.madrasaId == madrasaId })
                 .distinctBy { it.postId }
-                .filter { category == null || it.category == category }
+                .filter {
+                    (category == null || it.category == category) &&
+                        (it.approvalStatus == VerificationStatus.APPROVED ||
+                            (includePendingForUid.isNotBlank() && it.authorUid == includePendingForUid))
+                }
                 .sortedWith(compareByDescending<ForumPost> { it.isPinned }.thenByDescending { it.createdAt })
-                .take(40)
+                .take(50)
             trySend(Resource.Success(merged))
         }
         awaitClose { listener.remove() }
+    }
+
+    override fun getAllGlobalPostsForAdmin(): Flow<Resource<List<ForumPost>>> = callbackFlow {
+        trySend(Resource.Loading)
+        val query = firestore.collection("forum_posts")
+            .whereEqualTo("madrasaId", ForumPost.GLOBAL_FORUM_ID)
+
+        val listener = query.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                val fallback = localPostsFallback.values
+                    .filter { it.madrasaId == ForumPost.GLOBAL_FORUM_ID }
+                    .sortedWith(
+                        compareByDescending<ForumPost> { it.approvalStatus == VerificationStatus.PENDING }
+                            .thenByDescending { it.isPinned }
+                            .thenByDescending { it.createdAt }
+                    )
+                trySend(Resource.Success(fallback))
+                return@addSnapshotListener
+            }
+            val remoteList = snapshot?.documents
+                ?.mapNotNull { it.toObject(ForumPostDto::class.java)?.toDomain() }
+                .orEmpty()
+            remoteList.forEach { localPostsFallback[it.postId] = it }
+
+            val merged = (remoteList + localPostsFallback.values.filter { it.madrasaId == ForumPost.GLOBAL_FORUM_ID })
+                .distinctBy { it.postId }
+                .sortedWith(
+                    compareByDescending<ForumPost> { it.approvalStatus == VerificationStatus.PENDING }
+                        .thenByDescending { it.isPinned }
+                        .thenByDescending { it.createdAt }
+                )
+            trySend(Resource.Success(merged))
+        }
+        awaitClose { listener.remove() }
+    }
+
+    override suspend fun approveGlobalPost(postId: String): Resource<Unit> {
+        return try {
+            localPostsFallback[postId]?.let {
+                localPostsFallback[postId] = it.copy(approvalStatus = VerificationStatus.APPROVED)
+            }
+            runCatching {
+                firestore.collection("forum_posts").document(postId)
+                    .update("approvalStatus", VerificationStatus.APPROVED.wireValue)
+                    .await()
+            }
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "অনুমোদন ব্যর্থ", e)
+        }
+    }
+
+    override suspend fun updateForumPost(
+        postId: String,
+        title: String,
+        content: String,
+        category: ForumCategory,
+        contactPhone: String,
+    ): Resource<Unit> {
+        return try {
+            localPostsFallback[postId]?.let { existing ->
+                localPostsFallback[postId] = existing.copy(
+                    title = title.trim(),
+                    content = content.trim(),
+                    category = category,
+                    contactPhone = contactPhone.trim(),
+                )
+            }
+            runCatching {
+                firestore.collection("forum_posts").document(postId)
+                    .update(
+                        mapOf(
+                            "title" to title.trim(),
+                            "content" to content.trim(),
+                            "category" to category.wireValue,
+                            "contactPhone" to contactPhone.trim(),
+                        )
+                    )
+                    .await()
+            }
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "পোস্ট আপডেট ব্যর্থ", e)
+        }
     }
 
     override suspend fun createPost(post: ForumPost, imageUri: Uri?): Resource<Unit> {
@@ -112,7 +207,7 @@ class CommunityRepositoryImpl @Inject constructor(
                     "likesCount" to FieldValue.increment(1),
                 )
             }
-            postRef.update(updates).await()
+            runCatching { postRef.update(updates).await() }
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "লাইক ব্যর্থ", e)
@@ -121,7 +216,10 @@ class CommunityRepositoryImpl @Inject constructor(
 
     override suspend fun deletePost(postId: String): Resource<Unit> {
         return try {
-            firestore.collection("forum_posts").document(postId).delete().await()
+            localPostsFallback.remove(postId)
+            runCatching {
+                firestore.collection("forum_posts").document(postId).delete().await()
+            }
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "পোস্ট মুছে ফেলা যায়নি", e)
@@ -130,28 +228,41 @@ class CommunityRepositoryImpl @Inject constructor(
 
     override suspend fun togglePinPost(postId: String, isPinned: Boolean): Resource<Unit> {
         return try {
-            firestore.collection("forum_posts").document(postId)
-                .update("isPinned", isPinned)
-                .await()
+            localPostsFallback[postId]?.let {
+                localPostsFallback[postId] = it.copy(isPinned = isPinned)
+            }
+            runCatching {
+                firestore.collection("forum_posts").document(postId)
+                    .update("isPinned", isPinned)
+                    .await()
+            }
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "পিন স্ট্যাটাস পরিবর্তন ব্যর্থ", e)
         }
     }
 
+    private val localCommentsFallback = mutableMapOf<String, MutableList<PostComment>>()
+
     override fun getComments(postId: String): Flow<Resource<List<PostComment>>> = callbackFlow {
         trySend(Resource.Loading)
         val listener = firestore.collection("forum_posts").document(postId)
             .collection("comments")
-            .orderBy("createdAt", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(Resource.Error(error.localizedMessage ?: "মন্তব্য লোড ত্রুটি", error))
+                    val fallback = localCommentsFallback[postId].orEmpty().sortedBy { it.createdAt }
+                    trySend(Resource.Success(fallback))
                     return@addSnapshotListener
                 }
-                val list = snapshot?.documents?.mapNotNull { it.toObject(PostCommentDto::class.java)?.toDomain() }
-                    ?: emptyList()
-                trySend(Resource.Success(list))
+                val remoteList = snapshot?.documents
+                    ?.mapNotNull { it.toObject(PostCommentDto::class.java)?.toDomain() }
+                    .orEmpty()
+                val localList = localCommentsFallback[postId].orEmpty()
+                val merged = (remoteList + localList)
+                    .distinctBy { it.commentId }
+                    .sortedBy { it.createdAt }
+                localCommentsFallback[postId] = merged.toMutableList()
+                trySend(Resource.Success(merged))
             }
         awaitClose { listener.remove() }
     }
@@ -161,12 +272,19 @@ class CommunityRepositoryImpl @Inject constructor(
             val commentId = comment.commentId.ifBlank { "COMM_${System.currentTimeMillis()}" }
             val finalComment = comment.copy(commentId = commentId, createdAt = System.currentTimeMillis())
 
-            val postRef = firestore.collection("forum_posts").document(postId)
-            postRef.collection("comments").document(commentId)
-                .set(PostCommentDto.fromDomain(finalComment))
-                .await()
+            val list = localCommentsFallback.getOrPut(postId) { mutableListOf() }
+            list.add(finalComment)
+            localPostsFallback[postId]?.let { existing ->
+                localPostsFallback[postId] = existing.copy(commentsCount = existing.commentsCount + 1)
+            }
 
-            postRef.update("commentsCount", FieldValue.increment(1)).await()
+            runCatching {
+                val postRef = firestore.collection("forum_posts").document(postId)
+                postRef.collection("comments").document(commentId)
+                    .set(PostCommentDto.fromDomain(finalComment))
+                    .await()
+                postRef.update("commentsCount", FieldValue.increment(1)).await()
+            }
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "মন্তব্য যোগ করা যায়নি", e)

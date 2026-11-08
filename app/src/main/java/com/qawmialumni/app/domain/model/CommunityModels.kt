@@ -81,8 +81,16 @@ data class ForumPost(
     val likedByUids: List<String> = emptyList(),
     val commentsCount: Int = 0,
     val isPinned: Boolean = false,
+    val approvalStatus: VerificationStatus = VerificationStatus.APPROVED,
     val createdAt: Long = 0L,
-)
+) {
+    val isGlobal: Boolean
+        get() = madrasaId == GLOBAL_FORUM_ID
+
+    companion object {
+        const val GLOBAL_FORUM_ID = "GLOBAL"
+    }
+}
 
 data class Notice(
     val noticeId: String = "",

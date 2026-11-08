@@ -3,9 +3,15 @@ package com.qawmialumni.app.presentation.superadmin
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
 import com.qawmialumni.app.core.util.Resource
+import com.qawmialumni.app.domain.model.ForumCategory
+import com.qawmialumni.app.domain.model.ForumPost
 import com.qawmialumni.app.domain.model.Madrasa
+import com.qawmialumni.app.domain.model.UserRole
+import com.qawmialumni.app.domain.model.VerificationStatus
 import com.qawmialumni.app.domain.repository.AdminRepository
+import com.qawmialumni.app.domain.repository.CommunityRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,6 +31,8 @@ sealed interface CreateMadrasaUiState {
 @HiltViewModel
 class SuperAdminViewModel @Inject constructor(
     private val adminRepository: AdminRepository,
+    private val communityRepository: CommunityRepository,
+    private val dataStore: UserPreferencesDataStore,
 ) : ViewModel() {
 
     val madrasasList: StateFlow<Resource<List<Madrasa>>> = adminRepository.getAllMadrasas()
@@ -34,11 +42,31 @@ class SuperAdminViewModel @Inject constructor(
             initialValue = Resource.Loading,
         )
 
+    val globalForumPosts: StateFlow<Resource<List<ForumPost>>> = communityRepository.getAllGlobalPostsForAdmin()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = Resource.Loading,
+        )
+
+    val session = dataStore.userSession.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = null,
+    )
+
     private val _createState = MutableStateFlow<CreateMadrasaUiState>(CreateMadrasaUiState.Idle)
     val createState: StateFlow<CreateMadrasaUiState> = _createState.asStateFlow()
 
     private val _assignAdminState = MutableStateFlow<Resource<Unit>?>(null)
     val assignAdminState: StateFlow<Resource<Unit>?> = _assignAdminState.asStateFlow()
+
+    private val _globalActionMessage = MutableStateFlow<String?>(null)
+    val globalActionMessage: StateFlow<String?> = _globalActionMessage.asStateFlow()
+
+    fun clearGlobalActionMessage() {
+        _globalActionMessage.value = null
+    }
 
     fun generateUniqueCode(name: String): String {
         val initials = name.split(" ")
@@ -87,6 +115,98 @@ class SuperAdminViewModel @Inject constructor(
         viewModelScope.launch {
             _assignAdminState.value = Resource.Loading
             _assignAdminState.value = adminRepository.assignMadrasaAdminEmail(madrasaId, adminEmail)
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Global Forum Moderation & Full Authority (Approve, Manage, Edit, Delete)
+    // ------------------------------------------------------------------------
+
+    fun approveGlobalPost(postId: String) {
+        viewModelScope.launch {
+            when (val res = communityRepository.approveGlobalPost(postId)) {
+                is Resource.Success -> _globalActionMessage.value = "গ্লোবাল ফোরাম পোস্ট অনুমোদিত হয়েছে"
+                is Resource.Error -> _globalActionMessage.value = res.message
+                Resource.Loading -> Unit
+            }
+        }
+    }
+
+    fun rejectOrDeleteGlobalPost(postId: String) {
+        viewModelScope.launch {
+            when (val res = communityRepository.deletePost(postId)) {
+                is Resource.Success -> _globalActionMessage.value = "পোস্টটি মুছে ফেলা হয়েছে"
+                is Resource.Error -> _globalActionMessage.value = res.message
+                Resource.Loading -> Unit
+            }
+        }
+    }
+
+    fun togglePinGlobalPost(post: ForumPost) {
+        viewModelScope.launch {
+            communityRepository.togglePinPost(post.postId, !post.isPinned)
+            _globalActionMessage.value = if (!post.isPinned) "পোস্টটি পিন করা হয়েছে" else "পিন সরানো হয়েছে"
+        }
+    }
+
+    fun editGlobalPost(
+        postId: String,
+        title: String,
+        content: String,
+        category: ForumCategory,
+        contactPhone: String,
+        onDone: () -> Unit,
+    ) {
+        if (title.isBlank() || content.isBlank()) {
+            _globalActionMessage.value = "শিরোনাম ও বিস্তারিত বক্তব্য খালি রাখা যাবে না"
+            return
+        }
+        viewModelScope.launch {
+            when (val res = communityRepository.updateForumPost(postId, title, content, category, contactPhone)) {
+                is Resource.Success -> {
+                    _globalActionMessage.value = "পোস্ট সফলভাবে সম্পাদনা (Edit) করা হয়েছে"
+                    onDone()
+                }
+                is Resource.Error -> _globalActionMessage.value = res.message
+                Resource.Loading -> Unit
+            }
+        }
+    }
+
+    fun createOfficialGlobalPost(
+        title: String,
+        category: ForumCategory,
+        content: String,
+        contactPhone: String,
+        imageUri: Uri?,
+        onDone: () -> Unit,
+    ) {
+        if (title.isBlank() || content.isBlank()) {
+            _globalActionMessage.value = "শিরোনাম ও বিস্তারিত বক্তব্য লিখুন"
+            return
+        }
+        viewModelScope.launch {
+            val s = session.value
+            val post = ForumPost(
+                madrasaId = ForumPost.GLOBAL_FORUM_ID,
+                authorUid = s?.uid.orEmpty().ifBlank { "SUPER_ADMIN" },
+                authorName = s?.name.orEmpty().ifBlank { "কেন্দ্রীয় সুপার অ্যাডমিন" },
+                authorPhoto = s?.photoUrl.orEmpty(),
+                authorRole = UserRole.SUPER_ADMIN,
+                category = category,
+                title = title.trim(),
+                content = content.trim(),
+                contactPhone = contactPhone.trim(),
+                approvalStatus = VerificationStatus.APPROVED,
+            )
+            when (val res = communityRepository.createPost(post, imageUri)) {
+                is Resource.Success -> {
+                    _globalActionMessage.value = "গ্লোবাল ফোরামে অফিশিয়াল পোস্ট প্রকাশিত হয়েছে"
+                    onDone()
+                }
+                is Resource.Error -> _globalActionMessage.value = res.message
+                Resource.Loading -> Unit
+            }
         }
     }
 

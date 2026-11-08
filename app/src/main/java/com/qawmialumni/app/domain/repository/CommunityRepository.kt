@@ -9,11 +9,25 @@ import com.qawmialumni.app.domain.model.PostComment
 import kotlinx.coroutines.flow.Flow
 
 interface CommunityRepository {
-    // Forum
+    // Forum (Madrasa-specific or Global where madrasaId == "GLOBAL")
     fun getForumPosts(
         madrasaId: String,
         category: ForumCategory? = null,
+        includePendingForUid: String = "",
     ): Flow<Resource<List<ForumPost>>>
+
+    // Super Admin Global Forum Moderation & Management
+    fun getAllGlobalPostsForAdmin(): Flow<Resource<List<ForumPost>>>
+
+    suspend fun approveGlobalPost(postId: String): Resource<Unit>
+
+    suspend fun updateForumPost(
+        postId: String,
+        title: String,
+        content: String,
+        category: ForumCategory,
+        contactPhone: String,
+    ): Resource<Unit>
 
     suspend fun createPost(
         post: ForumPost,

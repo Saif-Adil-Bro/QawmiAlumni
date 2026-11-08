@@ -32,6 +32,8 @@ enum class UserStatus(val wireValue: String) {
     }
 }
 
+typealias VerificationStatus = UserStatus
+
 enum class KhedmatCategory(val wireValue: String, val banglaName: String) {
     TEACHING("Teaching", "تدريس • দরস ও শিক্ষকতা"),
     IMAMAT("Imamat", "إمامة • ইমামতি ও খতিব"),

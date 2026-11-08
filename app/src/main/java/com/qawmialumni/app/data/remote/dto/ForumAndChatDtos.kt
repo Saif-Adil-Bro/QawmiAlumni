@@ -7,6 +7,7 @@ import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
 import com.qawmialumni.app.domain.model.PostComment
 import com.qawmialumni.app.domain.model.UserRole
+import com.qawmialumni.app.domain.model.VerificationStatus
 
 @IgnoreExtraProperties
 data class ForumPostDto(
@@ -25,6 +26,7 @@ data class ForumPostDto(
     var likedByUids: List<String> = emptyList(),
     var commentsCount: Int = 0,
     var isPinned: Boolean = false,
+    var approvalStatus: String = "approved",
     var createdAt: Long = 0L,
 ) {
     fun toDomain(): ForumPost = ForumPost(
@@ -43,6 +45,11 @@ data class ForumPostDto(
         likedByUids = likedByUids,
         commentsCount = commentsCount,
         isPinned = isPinned,
+        approvalStatus = if (approvalStatus.isBlank()) {
+            VerificationStatus.APPROVED
+        } else {
+            VerificationStatus.fromWire(approvalStatus)
+        },
         createdAt = createdAt,
     )
 
@@ -63,6 +70,7 @@ data class ForumPostDto(
             likedByUids = post.likedByUids,
             commentsCount = post.commentsCount,
             isPinned = post.isPinned,
+            approvalStatus = post.approvalStatus.wireValue,
             createdAt = post.createdAt,
         )
     }

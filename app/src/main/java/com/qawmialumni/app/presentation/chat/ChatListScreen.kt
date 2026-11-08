@@ -1,5 +1,6 @@
 package com.qawmialumni.app.presentation.chat
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,13 +22,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,13 +50,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.ChatRoom
 import com.qawmialumni.app.presentation.components.AvatarWithRing
 import com.qawmialumni.app.presentation.components.ModernEmptyState
 import com.qawmialumni.app.presentation.components.QawmiIcons
+import com.qawmialumni.app.presentation.theme.EmeraldDeep
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
 import com.qawmialumni.app.presentation.theme.HeritageGold
 import com.qawmialumni.app.presentation.theme.HeritageGoldLight
@@ -67,6 +69,25 @@ fun ChatListScreen(
     val session by viewModel.dataStore.userSession.collectAsState(initial = null)
 
     var activeRoomForChat by remember { mutableStateOf<ChatRoom?>(null) }
+
+    // If a conversation is selected, open Full-Page WhatsApp-Style Chat View instead of a popup dialog
+    activeRoomForChat?.let { room ->
+        val currentUid = session?.uid.orEmpty()
+        val otherUid = room.participants.firstOrNull { it != currentUid } ?: ""
+        val otherName = room.participantNames[otherUid] ?: "সাথী"
+        val otherPhoto = room.participantPhotos[otherUid] ?: ""
+
+        FullPageChatRoomScreen(
+            room = room,
+            currentUid = currentUid,
+            otherUid = otherUid,
+            otherName = otherName,
+            otherPhoto = otherPhoto,
+            viewModel = viewModel,
+            onBack = { activeRoomForChat = null },
+        )
+        return
+    }
 
     when (val res = roomsResource) {
         is Resource.Loading -> {
@@ -91,7 +112,7 @@ fun ChatListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(res.data, key = { it.roomId }) { room ->
@@ -110,23 +131,6 @@ fun ChatListScreen(
                 }
             }
         }
-    }
-
-    activeRoomForChat?.let { room ->
-        val currentUid = session?.uid.orEmpty()
-        val otherUid = room.participants.firstOrNull { it != currentUid } ?: ""
-        val otherName = room.participantNames[otherUid] ?: "সাথী"
-        val otherPhoto = room.participantPhotos[otherUid] ?: ""
-
-        ChatRoomDialog(
-            room = room,
-            currentUid = currentUid,
-            otherUid = otherUid,
-            otherName = otherName,
-            otherPhoto = otherPhoto,
-            viewModel = viewModel,
-            onDismiss = { activeRoomForChat = null },
-        )
     }
 }
 
@@ -159,7 +163,7 @@ fun ChatRoomCard(
             AvatarWithRing(
                 photoUrl = photoUrl,
                 name = name,
-                size = 50.dp,
+                size = 52.dp,
                 ringColor = HeritageGold,
             )
 
@@ -200,173 +204,208 @@ fun ChatRoomCard(
     }
 }
 
+/**
+ * Full-Page WhatsApp-Style Chat Screen (replaces the old popup dialog).
+ */
 @Composable
-fun ChatRoomDialog(
+fun FullPageChatRoomScreen(
     room: ChatRoom,
     currentUid: String,
     otherUid: String,
     otherName: String,
     otherPhoto: String,
     viewModel: ChatViewModel,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
 ) {
+    BackHandler(onBack = onBack)
+
     val roomResource by viewModel.observeRoom(room.roomId).collectAsState()
     var messageText by remember { mutableStateOf("") }
 
     val liveRoom = (roomResource as? Resource.Success)?.data ?: room
 
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(540.dp)
-                .padding(vertical = 8.dp),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFECE5DD).copy(alpha = 0.35f)),
+    ) {
+        // WhatsApp-Style Full-Width Emerald Header Bar
+        Surface(
+            color = EmeraldDeep,
+            tonalElevation = 4.dp,
+            shadowElevation = 4.dp,
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Branded Emerald Chat Header
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(EmeraldPrimary)
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AvatarWithRing(
-                        photoUrl = otherPhoto,
-                        name = otherName,
-                        size = 40.dp,
-                        ringColor = HeritageGoldLight,
-                        backgroundColor = Color.White.copy(alpha = 0.15f),
-                        textColor = Color.White,
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "ফিরে যান",
+                        tint = Color.White,
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = otherName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                        )
-                        Text(
-                            text = "সরাসরি ইন-অ্যাপ মেসেজ",
-                            fontSize = 11.sp,
-                            color = HeritageGoldLight,
-                        )
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Color.White,
-                        )
-                    }
                 }
 
-                // Bucketed Messages List
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background)
-                        .padding(horizontal = 12.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                    reverseLayout = true,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(liveRoom.recentMessages.reversed()) { msg ->
-                        val isMe = msg.senderId == currentUid
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .widthIn(max = 260.dp)
-                                    .clip(
-                                        RoundedCornerShape(
-                                            topStart = 16.dp,
-                                            topEnd = 16.dp,
-                                            bottomStart = if (isMe) 16.dp else 4.dp,
-                                            bottomEnd = if (isMe) 4.dp else 16.dp,
-                                        )
-                                    )
-                                    .background(if (isMe) EmeraldPrimary else MaterialTheme.colorScheme.surface)
-                                    .then(
-                                        if (!isMe) {
-                                            Modifier.border(
-                                                1.dp,
-                                                MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                                                RoundedCornerShape(
-                                                    topStart = 16.dp,
-                                                    topEnd = 16.dp,
-                                                    bottomStart = 4.dp,
-                                                    bottomEnd = 16.dp,
-                                                ),
-                                            )
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
-                                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                            ) {
-                                Text(
-                                    text = msg.text,
-                                    color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
-                                )
-                            }
-                        }
-                    }
-                }
+                AvatarWithRing(
+                    photoUrl = otherPhoto,
+                    name = otherName,
+                    size = 42.dp,
+                    ringColor = HeritageGoldLight,
+                    backgroundColor = Color.White.copy(alpha = 0.15f),
+                    textColor = Color.White,
+                )
 
-                // Sticky Input Bar
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = otherName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "● সরাসরি ইন-অ্যাপ চ্যাট (কওমি নেটওয়ার্ক)",
+                        fontSize = 11.sp,
+                        color = HeritageGoldLight,
+                    )
+                }
+            }
+        }
+
+        // Full-Screen Scrollable Message Area
+        if (liveRoom.recentMessages.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 3.dp,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(14.dp),
+                    tonalElevation = 1.dp,
                 ) {
+                    Text(
+                        text = "আসসালামু আলাইকুম ওয়া রাহমাতুল্লাহ!\n$otherName-এর সাথে আপনার কথোপকথন শুরু করুন।",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                contentPadding = PaddingValues(vertical = 14.dp),
+                reverseLayout = true,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(liveRoom.recentMessages.reversed()) { msg ->
+                    val isMe = msg.senderId == currentUid
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
                     ) {
-                        OutlinedTextField(
-                            value = messageText,
-                            onValueChange = { messageText = it },
-                            placeholder = { Text("আসসালামু আলাইকুম, বার্তা লিখুন...") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            shape = RoundedCornerShape(50),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                viewModel.sendMessage(
-                                    roomId = room.roomId,
-                                    recipientId = otherUid,
-                                    recipientName = otherName,
-                                    recipientPhoto = otherPhoto,
-                                    text = messageText,
+                        Box(
+                            modifier = Modifier
+                                .widthIn(max = 300.dp)
+                                .clip(
+                                    RoundedCornerShape(
+                                        topStart = 16.dp,
+                                        topEnd = 16.dp,
+                                        bottomStart = if (isMe) 16.dp else 4.dp,
+                                        bottomEnd = if (isMe) 4.dp else 16.dp,
+                                    )
                                 )
-                                messageText = ""
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                            shape = CircleShape,
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.size(48.dp),
+                                .background(if (isMe) EmeraldPrimary else MaterialTheme.colorScheme.surface)
+                                .then(
+                                    if (!isMe) {
+                                        Modifier.border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                            RoundedCornerShape(
+                                                topStart = 16.dp,
+                                                topEnd = 16.dp,
+                                                bottomStart = 4.dp,
+                                                bottomEnd = 16.dp,
+                                            ),
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "পাঠান",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp),
+                            Text(
+                                text = msg.text,
+                                color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
                             )
                         }
                     }
+                }
+            }
+        }
+
+        HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+        // Sticky Bottom WhatsApp-Style Message Input Bar
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp,
+            shadowElevation = 6.dp,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = messageText,
+                    onValueChange = { messageText = it },
+                    placeholder = { Text("আসসালামু আলাইকুম, বার্তা লিখুন...") },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 4,
+                    shape = RoundedCornerShape(24.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        if (messageText.isNotBlank()) {
+                            viewModel.sendMessage(
+                                roomId = room.roomId,
+                                recipientId = otherUid,
+                                recipientName = otherName,
+                                recipientPhoto = otherPhoto,
+                                text = messageText,
+                            )
+                            messageText = ""
+                        }
+                    },
+                    enabled = messageText.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "পাঠান",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
         }

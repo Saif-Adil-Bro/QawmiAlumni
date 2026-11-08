@@ -90,7 +90,7 @@ jobs:
           fi
           echo "Found APK to upload: $APK_PATH"
 
-          APPETIZE_KEY="${APPETIZE_PUBLIC_KEY:-4j27hpjo2ribuk6r4w7lmj2bli}"
+          APPETIZE_KEY="${APPETIZE_PUBLIC_KEY:-uxs2ceysanfzba5vgujfatbs2m}"
           echo "Updating Appetize app: $APPETIZE_KEY"
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.appetize.io/v1/apps/$APPETIZE_KEY" \
             -u "$APPETIZE_TOKEN:" \
