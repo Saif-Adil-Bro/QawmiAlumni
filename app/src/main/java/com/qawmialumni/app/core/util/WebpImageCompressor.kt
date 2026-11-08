@@ -3,14 +3,22 @@ package com.qawmialumni.app.core.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Build
+import androidx.core.graphics.drawable.toBitmap
 import androidx.exifinterface.media.ExifInterface
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.FileInputStream
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -50,11 +58,12 @@ enum class ImageTarget(val maxDimension: Int) {
  * Native, dependency-free WebP compressor.
  *
  * Pipeline:
- * 1. Read image bounds only (no full decode) and pick a power-of-two `inSampleSize`
- *    so a 12MP camera photo never gets fully loaded into memory.
- * 2. Decode, fix EXIF orientation, scale down keeping aspect ratio to [ImageTarget.maxDimension].
- * 3. Encode with `WEBP_LOSSY` (API 30+) or `WEBP` (API < 30) starting at 70% quality.
- * 4. If still >= 60 KB, step quality down to 40%, then progressively shrink dimensions
+ * 1. Read image bytes in a single pass from ContentResolver (avoiding multi-open PhotoPicker issues).
+ * 2. Read image bounds and pick a power-of-two `inSampleSize` so a 12MP camera photo never gets
+ *    fully decoded at original resolution.
+ * 3. Decode, fix EXIF orientation, scale down keeping aspect ratio to [ImageTarget.maxDimension].
+ * 4. Encode with `WEBP_LOSSY` (API 30+) or `WEBP` (API < 30) starting at 70% quality.
+ * 5. If still >= 60 KB, step quality down to 40%, then progressively shrink dimensions
  *    until the result fits under [Constants.IMAGE_MAX_BYTES].
  */
 @Singleton
@@ -66,9 +75,23 @@ class WebpImageCompressor @Inject constructor(
         uri: Uri,
         target: ImageTarget = ImageTarget.FULL,
         maxBytes: Int = Constants.IMAGE_MAX_BYTES,
-    ): CompressedImage = withContext(Dispatchers.Default) {
-        val source = decodeSampled(uri, target.maxDimension)
-        val oriented = applyExifOrientation(uri, source)
+    ): CompressedImage = withContext(Dispatchers.IO) {
+        val rawBytes = readUriBytes(uri)
+        val (source, orientation) = if (rawBytes != null && rawBytes.isNotEmpty()) {
+            val decoded = runCatching { decodeSampledFromBytes(rawBytes, target.maxDimension) }.getOrNull()
+                ?: decodeViaImageDecoder(uri, target.maxDimension)
+                ?: decodeViaCoil(uri, target.maxDimension)
+                ?: throw IOException("Unable to decode image: $uri")
+            val exifOrientation = readExifOrientation(rawBytes)
+            decoded to exifOrientation
+        } else {
+            val fallbackBitmap = decodeViaImageDecoder(uri, target.maxDimension)
+                ?: decodeViaCoil(uri, target.maxDimension)
+                ?: throw IOException("Unable to open image: $uri")
+            fallbackBitmap to ExifInterface.ORIENTATION_NORMAL
+        }
+
+        val oriented = applyExifOrientation(source, orientation)
         var working = scaleDown(oriented, target.maxDimension)
         if (oriented !== working && oriented !== source) oriented.recycle()
         if (source !== working && !source.isRecycled) source.recycle()
@@ -118,12 +141,37 @@ class WebpImageCompressor @Inject constructor(
         return CompressedImage(out.toByteArray(), bitmap.width, bitmap.height, quality)
     }
 
-    private fun decodeSampled(uri: Uri, maxDimension: Int): Bitmap {
+    private fun readUriBytes(uri: Uri): ByteArray? {
         val resolver = context.contentResolver
+        runCatching {
+            resolver.openInputStream(uri)?.use { stream ->
+                val bytes = stream.readBytes()
+                if (bytes.isNotEmpty()) return bytes
+            }
+        }
+        runCatching {
+            resolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                afd.createInputStream().use { stream ->
+                    val bytes = stream.readBytes()
+                    if (bytes.isNotEmpty()) return bytes
+                }
+            }
+        }
+        runCatching {
+            resolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                FileInputStream(pfd.fileDescriptor).use { stream ->
+                    val bytes = stream.readBytes()
+                    if (bytes.isNotEmpty()) return bytes
+                }
+            }
+        }
+        return null
+    }
 
+    private fun decodeSampledFromBytes(rawBytes: ByteArray, maxDimension: Int): Bitmap {
+        // NOTE: BitmapFactory.decodeByteArray ALWAYS returns null when inJustDecodeBounds = true!
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            ?: throw IOException("Unable to open image: $uri")
+        BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
             throw IOException("Unsupported or corrupt image")
         }
@@ -132,8 +180,45 @@ class WebpImageCompressor @Inject constructor(
             inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-        return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+        return BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
             ?: throw IOException("Failed to decode image")
+    }
+
+    private fun decodeViaImageDecoder(uri: Uri, maxDimension: Int): Bitmap? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        return runCatching {
+            val source = ImageDecoder.createSource(context.contentResolver, uri)
+            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.isMutableRequired = true
+                val longest = max(info.size.width, info.size.height)
+                if (longest > maxDimension) {
+                    val ratio = maxDimension.toFloat() / longest
+                    val w = (info.size.width * ratio).roundToInt().coerceAtLeast(1)
+                    val h = (info.size.height * ratio).roundToInt().coerceAtLeast(1)
+                    decoder.setTargetSize(w, h)
+                }
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun decodeViaCoil(uri: Uri, maxDimension: Int): Bitmap? {
+        return runCatching {
+            val request = ImageRequest.Builder(context)
+                .data(uri)
+                .size(maxDimension)
+                .allowHardware(false)
+                .build()
+            val result = context.imageLoader.execute(request)
+            if (result is SuccessResult) {
+                val bmp = (result.drawable as? BitmapDrawable)?.bitmap
+                    ?: result.drawable.toBitmap(config = Bitmap.Config.ARGB_8888)
+                // Always copy so recycling in compressor does not corrupt Coil's memory cache
+                bmp.copy(Bitmap.Config.ARGB_8888, false)
+            } else {
+                null
+            }
+        }.getOrNull()
     }
 
     /** Largest power-of-two sample size that still keeps the longest edge >= [maxDimension]. */
@@ -144,16 +229,18 @@ class WebpImageCompressor @Inject constructor(
         return sample
     }
 
-    private fun applyExifOrientation(uri: Uri, bitmap: Bitmap): Bitmap {
-        val orientation = runCatching {
-            context.contentResolver.openInputStream(uri)?.use {
-                ExifInterface(it).getAttributeInt(
+    private fun readExifOrientation(rawBytes: ByteArray): Int {
+        return runCatching {
+            ByteArrayInputStream(rawBytes).use { input ->
+                ExifInterface(input).getAttributeInt(
                     ExifInterface.TAG_ORIENTATION,
                     ExifInterface.ORIENTATION_NORMAL,
                 )
             }
-        }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+    }
 
+    private fun applyExifOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
         val matrix = Matrix()
         when (orientation) {
             ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)

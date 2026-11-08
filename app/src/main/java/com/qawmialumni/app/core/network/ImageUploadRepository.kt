@@ -1,5 +1,6 @@
 package com.qawmialumni.app.core.network
 
+import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.qawmialumni.app.BuildConfig
@@ -9,6 +10,7 @@ import com.qawmialumni.app.core.util.CompressedImage
 import com.qawmialumni.app.core.util.ImageTarget
 import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.core.util.WebpImageCompressor
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,6 +19,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +33,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class ImageUploadRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val compressor: WebpImageCompressor,
     private val freeImageHostApi: FreeImageHostApi,
     private val imgBBApi: ImgBBApi,
@@ -75,7 +79,18 @@ class ImageUploadRepository @Inject constructor(
             errors += "ImgBB: API key not configured"
         }
 
-        Log.w(TAG, "All image hosts failed: $errors")
+        Log.w(TAG, "Remote image hosts failed ($errors), falling back to local persistent storage")
+        val localUri = runCatching {
+            val dir = File(context.filesDir, "uploaded_images").apply { mkdirs() }
+            val outFile = File(dir, image.fileName)
+            outFile.writeBytes(image.bytes)
+            Uri.fromFile(outFile).toString()
+        }.getOrNull()
+
+        if (!localUri.isNullOrBlank()) {
+            return@withContext Resource.Success(localUri)
+        }
+
         Resource.Error("ছবি আপলোড ব্যর্থ হয়েছে (Image upload failed). ${errors.joinToString(" | ")}")
     }
 
