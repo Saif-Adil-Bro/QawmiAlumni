@@ -30,6 +30,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
+import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
+import com.qawmialumni.app.core.notification.NotificationHelper
+import com.qawmialumni.app.data.remote.dto.AuditLogDto
+import com.qawmialumni.app.domain.model.AuditActionType
+import com.qawmialumni.app.domain.model.AuditLog
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,7 +45,11 @@ class AdminRepositoryImpl @Inject constructor(
     private val ustadDao: UstadDao,
     private val noticeDao: NoticeDao,
     private val alumniDao: AlumniDao,
+    private val userPreferencesDataStore: UserPreferencesDataStore,
+    private val notificationHelper: NotificationHelper,
 ) : AdminRepository {
+
+    private val localAuditLogsFallback = mutableMapOf<String, AuditLog>()
 
     override suspend fun createMadrasa(
         name: String,
@@ -117,6 +126,21 @@ class AdminRepositoryImpl @Inject constructor(
                 }
             }
 
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "সুপার অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.MADRASA_CREATED,
+                        targetTitle = name.trim(),
+                        details = "নতুন মাদরাসা তৈরি হয়েছে (কোড: $normalizedCode)",
+                    )
+                )
+            }
+
             Resource.Success(madrasa)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "মাদরাসা তৈরি করা যায়নি", e)
@@ -174,6 +198,21 @@ class AdminRepositoryImpl @Inject constructor(
                 }
             }
 
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "সুপার অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.ADMIN_ASSIGNED,
+                        targetTitle = adminEmails.joinToString(", "),
+                        details = "মাদরাসা অ্যাডমিন হিসেবে নতুন দায়িত্ব দেওয়া হয়েছে",
+                    )
+                )
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "অ্যাডমিন নিয়োগ ব্যর্থ হয়েছে", e)
@@ -222,6 +261,21 @@ class AdminRepositoryImpl @Inject constructor(
                             )
                         ).await()
                 }
+            }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "সুপার অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.ADMIN_REMOVED,
+                        targetTitle = adminEmailOrUid,
+                        details = "মাদরাসা অ্যাডমিন পদবী থেকে অপসারণ করা হয়েছে",
+                    )
+                )
             }
 
             Resource.Success(Unit)
@@ -339,8 +393,24 @@ class AdminRepositoryImpl @Inject constructor(
 
             // Immediately sync approved student into local Room DB
             val doc = firestore.collection("users").document(userId).get().await()
-            doc.toObject(UserDto::class.java)?.toDomain()?.let {
+            val approvedUser = doc.toObject(UserDto::class.java)?.toDomain()
+            approvedUser?.let {
                 alumniDao.upsertSingle(it.toEntity())
+            }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "মাদরাসা অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.STUDENT_APPROVED,
+                        targetTitle = approvedUser?.name ?: "ইউজার ($userId)",
+                        details = "ফারেগীন স্টুডেন্ট প্রোফাইল সফলভাবে অনুমোদন করা হয়েছে",
+                    )
+                )
             }
 
             Resource.Success(Unit)
@@ -358,6 +428,22 @@ class AdminRepositoryImpl @Inject constructor(
                         "updatedAt" to System.currentTimeMillis(),
                     )
                 ).await()
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = session.madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "মাদরাসা অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.STUDENT_REJECTED,
+                        targetTitle = "ইউজার ($userId)",
+                        details = "ফারেগীন যোগদানের আবেদন বাতিল/বাতিল ঘোষণা করা হয়েছে",
+                    )
+                )
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "প্রত্যাখ্যান ব্যর্থ হয়েছে", e)
@@ -395,6 +481,22 @@ class AdminRepositoryImpl @Inject constructor(
                     .update("staffUids", staffUpdate)
                     .await()
             }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "মাদরাসা অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.ROLE_UPDATED,
+                        targetTitle = "ইউজার ($userId)",
+                        details = "সদস্যের পদবী পরিবর্তন করা হয়েছে (${newRole.wireValue})",
+                    )
+                )
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "দায়িত্ব পরিবর্তন করা যায়নি", e)
@@ -489,6 +591,26 @@ class AdminRepositoryImpl @Inject constructor(
                     .await()
             }
 
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = finalNotice.madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "মাদরাসা প্রশাসন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.NOTICE_POSTED,
+                        targetTitle = finalNotice.title,
+                        details = "নতুন নোটিশ বা দস্তারবন্দী সংক্রান্ত ঘোষণা জারি করা হয়েছে",
+                    )
+                )
+                notificationHelper.showNoticeNotification(
+                    title = finalNotice.title,
+                    madrasaName = session.name.ifBlank { "মাদরাসা" },
+                    noticeId = noticeId,
+                )
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "নোটিশ প্রকাশ করা যায়নি", e)
@@ -546,5 +668,54 @@ class AdminRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "অংশগ্রহণ নিশ্চিত করা যায়নি", e)
         }
+    }
+
+    override suspend fun recordAuditLog(log: AuditLog): Resource<Unit> {
+        return try {
+            val logId = log.logId.ifBlank { "LOG_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}" }
+            val finalLog = log.copy(logId = logId, timestamp = if (log.timestamp > 0) log.timestamp else System.currentTimeMillis())
+            localAuditLogsFallback[logId] = finalLog
+
+            runCatching {
+                firestore.collection("audit_logs").document(logId)
+                    .set(AuditLogDto.fromDomain(finalLog))
+                    .await()
+            }
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "লগ সংরক্ষণ করা যায়নি", e)
+        }
+    }
+
+    override fun getAuditLogs(madrasaId: String): Flow<Resource<List<AuditLog>>> = callbackFlow {
+        trySend(Resource.Loading)
+        val query = if (madrasaId.isNotBlank() && madrasaId != "GLOBAL_ALL") {
+            firestore.collection("audit_logs").whereEqualTo("madrasaId", madrasaId)
+        } else {
+            firestore.collection("audit_logs")
+        }
+
+        val listener = query.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                val fallback = localAuditLogsFallback.values
+                    .filter { madrasaId.isBlank() || madrasaId == "GLOBAL_ALL" || it.madrasaId == madrasaId }
+                    .sortedByDescending { it.timestamp }
+                trySend(Resource.Success(fallback))
+                return@addSnapshotListener
+            }
+            val remoteList = snapshot?.documents
+                ?.mapNotNull { it.toObject(AuditLogDto::class.java)?.toDomain() }
+                .orEmpty()
+            remoteList.forEach { localAuditLogsFallback[it.logId] = it }
+
+            val merged = (remoteList + localAuditLogsFallback.values.filter {
+                madrasaId.isBlank() || madrasaId == "GLOBAL_ALL" || it.madrasaId == madrasaId
+            }).distinctBy { it.logId }
+                .sortedByDescending { it.timestamp }
+                .take(100)
+
+            trySend(Resource.Success(merged))
+        }
+        awaitClose { listener.remove() }
     }
 }

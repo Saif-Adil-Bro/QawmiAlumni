@@ -31,11 +31,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -83,7 +86,15 @@ fun MainAppScaffold(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSelfProfileDialog by remember { mutableStateOf(false) }
+    var showNotificationSettingsDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
     val session by albumViewModel.session.collectAsState()
+
+    LaunchedEffect(Unit) {
+        albumViewModel.notificationHelper.inAppNotifications.collect { inApp ->
+            snackbarHostState.showSnackbar("${inApp.title}: ${inApp.message}")
+        }
+    }
 
     val roleLabel = when (session?.role) {
         UserRole.SUPER_ADMIN -> "সুপার অ্যাডমিন"
@@ -93,6 +104,7 @@ fun MainAppScaffold(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 TopAppBar(
@@ -138,6 +150,21 @@ fun MainAppScaffold(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = { showNotificationSettingsDialog = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.16f)),
+                        ) {
+                            Icon(
+                                imageVector = QawmiIcons.NotificationBell,
+                                contentDescription = "নোটিফিকেশন",
+                                modifier = Modifier.size(20.dp),
+                                tint = HeritageGoldLight,
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
                         IconButton(
                             onClick = { showSelfProfileDialog = true },
                             modifier = Modifier
@@ -328,6 +355,14 @@ fun MainAppScaffold(
         SelfProfileEditDialog(
             viewModel = albumViewModel,
             onDismiss = { showSelfProfileDialog = false },
+        )
+    }
+
+    if (showNotificationSettingsDialog) {
+        com.qawmialumni.app.presentation.components.NotificationSettingsDialog(
+            dataStore = albumViewModel.dataStore,
+            notificationHelper = albumViewModel.notificationHelper,
+            onDismiss = { showNotificationSettingsDialog = false },
         )
     }
 }

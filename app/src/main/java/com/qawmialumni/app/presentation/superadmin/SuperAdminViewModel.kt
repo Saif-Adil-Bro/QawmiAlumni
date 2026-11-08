@@ -32,7 +32,8 @@ sealed interface CreateMadrasaUiState {
 class SuperAdminViewModel @Inject constructor(
     private val adminRepository: AdminRepository,
     private val communityRepository: CommunityRepository,
-    private val dataStore: UserPreferencesDataStore,
+    val dataStore: UserPreferencesDataStore,
+    val notificationHelper: com.qawmialumni.app.core.notification.NotificationHelper,
 ) : ViewModel() {
 
     val madrasasList: StateFlow<Resource<List<Madrasa>>> = adminRepository.getAllMadrasas()
@@ -43,6 +44,13 @@ class SuperAdminViewModel @Inject constructor(
         )
 
     val globalForumPosts: StateFlow<Resource<List<ForumPost>>> = communityRepository.getAllGlobalPostsForAdmin()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = Resource.Loading,
+        )
+
+    val allAuditLogs: StateFlow<Resource<List<com.qawmialumni.app.domain.model.AuditLog>>> = adminRepository.getAuditLogs("GLOBAL_ALL")
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),

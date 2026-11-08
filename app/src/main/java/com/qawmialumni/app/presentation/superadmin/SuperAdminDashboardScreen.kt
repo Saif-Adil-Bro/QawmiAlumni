@@ -111,6 +111,7 @@ fun SuperAdminDashboardScreen(
 ) {
     val madrasasResource by viewModel.madrasasList.collectAsState()
     val globalPostsResource by viewModel.globalForumPosts.collectAsState()
+    val auditLogsResource by viewModel.allAuditLogs.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -118,6 +119,7 @@ fun SuperAdminDashboardScreen(
     var selectedMadrasaForAdminAssign by remember { mutableStateOf<Madrasa?>(null) }
     var selectedGlobalPostForEdit by remember { mutableStateOf<ForumPost?>(null) }
     var selectedGlobalPostForDetail by remember { mutableStateOf<ForumPost?>(null) }
+    var showNotificationSettingsDialog by remember { mutableStateOf(false) }
 
     val pendingGlobalCount = (globalPostsResource as? Resource.Success)?.data
         ?.count { it.approvalStatus == VerificationStatus.PENDING } ?: 0
@@ -150,6 +152,21 @@ fun SuperAdminDashboardScreen(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = { showNotificationSettingsDialog = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.16f)),
+                        ) {
+                            Icon(
+                                imageVector = QawmiIcons.NotificationBell,
+                                contentDescription = "নোটিফিকেশন",
+                                tint = HeritageGoldLight,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
                         IconButton(
                             onClick = onSignOut,
                             modifier = Modifier
@@ -195,14 +212,30 @@ fun SuperAdminDashboardScreen(
                     )
                     Tab(
                         selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
+                        onClick = {
+                            selectedTab = 1
+                        },
                         text = {
                             val badgeSuffix = if (pendingGlobalCount > 0) " ($pendingGlobalCount পেন্ডিং)" else ""
                             Text(
-                                text = "🌍 গ্লোবাল ফোরাম অথরিটি$badgeSuffix",
+                                text = "🌍 গ্লোবাল ফোরাম$badgeSuffix",
                                 fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 13.sp,
                                 color = if (pendingGlobalCount > 0 && selectedTab != 1) HeritageGold else EmeraldPrimary,
+                            )
+                        },
+                    )
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = {
+                            selectedTab = 2
+                            selectedGlobalPostForDetail = null
+                        },
+                        text = {
+                            Text(
+                                text = "📋 অডিট ও অ্যাক্টিভিটি",
+                                fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 13.sp,
                             )
                         },
                     )
@@ -220,10 +253,10 @@ fun SuperAdminDashboardScreen(
                         Icon(imageVector = Icons.Default.Add, contentDescription = "Add Madrasa")
                     },
                     text = {
-                        Text("নতুন মাদরাসা যুক্ত করুন", fontWeight = FontWeight.Bold)
+                        Text("নতুন মাদরাসা", fontWeight = FontWeight.Bold)
                     },
                 )
-            } else if (selectedGlobalPostForDetail == null) {
+            } else if (selectedTab == 1 && selectedGlobalPostForDetail == null) {
                 ExtendedFloatingActionButton(
                     onClick = { showCreateOfficialGlobalPostDialog = true },
                     containerColor = EmeraldPrimary,
@@ -233,7 +266,7 @@ fun SuperAdminDashboardScreen(
                         Icon(imageVector = Icons.Default.Add, contentDescription = "Add Global Post")
                     },
                     text = {
-                        Text("গ্লোবাল ঘোষণা প্রকাশ", fontWeight = FontWeight.Bold)
+                        Text("গ্লোবাল ঘোষণা", fontWeight = FontWeight.Bold)
                     },
                 )
             }
@@ -262,67 +295,76 @@ fun SuperAdminDashboardScreen(
                 },
                 label = "SuperAdminTabTransition",
             ) { tab ->
-                if (tab == 0) {
-                    MadrasaManagementTabContent(
-                        madrasasResource = madrasasResource,
-                        onAssignAdminClick = { selectedMadrasaForAdminAssign = it },
-                    )
-                } else {
-                    // Tab 1: Global Forum Authority (Approve, Manage, Edit, Pin, Delete)
-                    AnimatedContent(
-                        targetState = selectedGlobalPostForDetail,
-                        transitionSpec = {
-                            if (targetState != null) {
-                                (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
-                                    androidx.compose.animation.slideInHorizontally(
-                                        animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                                        initialOffsetX = { fullWidth -> fullWidth / 3 }
-                                    )) togetherWith
-                                    (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
-                                        androidx.compose.animation.slideOutHorizontally(
-                                            animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                                            targetOffsetX = { fullWidth -> -fullWidth / 4 }
-                                        ))
-                            } else {
-                                (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
-                                    androidx.compose.animation.slideInHorizontally(
-                                        animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                                        initialOffsetX = { fullWidth -> -fullWidth / 3 }
-                                    )) togetherWith
-                                    (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
-                                        androidx.compose.animation.slideOutHorizontally(
-                                            animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                                            targetOffsetX = { fullWidth -> fullWidth / 4 }
-                                        ))
-                            }
-                        },
-                        label = "SuperAdminGlobalPostDetailTransition",
-                    ) { activeDetail ->
-                        if (activeDetail != null) {
-                            val livePost = (globalPostsResource as? Resource.Success)?.data
-                                ?.firstOrNull { it.postId == activeDetail.postId } ?: activeDetail
+                when (tab) {
+                    0 -> {
+                        MadrasaManagementTabContent(
+                            madrasasResource = madrasasResource,
+                            onAssignAdminClick = { selectedMadrasaForAdminAssign = it },
+                        )
+                    }
+                    1 -> {
+                        // Tab 1: Global Forum Authority (Approve, Manage, Edit, Pin, Delete)
+                        AnimatedContent(
+                            targetState = selectedGlobalPostForDetail,
+                            transitionSpec = {
+                                if (targetState != null) {
+                                    (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                                        androidx.compose.animation.slideInHorizontally(
+                                            animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                            initialOffsetX = { fullWidth -> fullWidth / 3 }
+                                        )) togetherWith
+                                        (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                                            androidx.compose.animation.slideOutHorizontally(
+                                                animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                                targetOffsetX = { fullWidth -> -fullWidth / 4 }
+                                            ))
+                                } else {
+                                    (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                                        androidx.compose.animation.slideInHorizontally(
+                                            animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                            initialOffsetX = { fullWidth -> -fullWidth / 3 }
+                                        )) togetherWith
+                                        (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                                            androidx.compose.animation.slideOutHorizontally(
+                                                animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                                targetOffsetX = { fullWidth -> fullWidth / 4 }
+                                            ))
+                                }
+                            },
+                            label = "SuperAdminGlobalPostDetailTransition",
+                        ) { activeDetail ->
+                            if (activeDetail != null) {
+                                val livePost = (globalPostsResource as? Resource.Success)?.data
+                                    ?.firstOrNull { it.postId == activeDetail.postId } ?: activeDetail
 
-                            SuperAdminGlobalPostDetailView(
-                                post = livePost,
-                                onBack = { selectedGlobalPostForDetail = null },
-                                onApprove = { viewModel.approveGlobalPost(livePost.postId) },
-                                onRejectOrDelete = {
-                                    viewModel.rejectOrDeleteGlobalPost(livePost.postId)
-                                    selectedGlobalPostForDetail = null
-                                },
-                                onEdit = { selectedGlobalPostForEdit = livePost },
-                                onTogglePin = { viewModel.togglePinGlobalPost(livePost) },
-                            )
-                        } else {
-                            GlobalForumAuthorityTabContent(
-                                globalPostsResource = globalPostsResource,
-                                onOpenDetail = { selectedGlobalPostForDetail = it },
-                                onApprove = { viewModel.approveGlobalPost(it.postId) },
-                                onRejectOrDelete = { viewModel.rejectOrDeleteGlobalPost(it.postId) },
-                                onEdit = { selectedGlobalPostForEdit = it },
-                                onTogglePin = { viewModel.togglePinGlobalPost(it) },
-                            )
+                                SuperAdminGlobalPostDetailView(
+                                    post = livePost,
+                                    onBack = { selectedGlobalPostForDetail = null },
+                                    onApprove = { viewModel.approveGlobalPost(livePost.postId) },
+                                    onRejectOrDelete = {
+                                        viewModel.rejectOrDeleteGlobalPost(livePost.postId)
+                                        selectedGlobalPostForDetail = null
+                                    },
+                                    onEdit = { selectedGlobalPostForEdit = livePost },
+                                    onTogglePin = { viewModel.togglePinGlobalPost(livePost) },
+                                )
+                            } else {
+                                GlobalForumAuthorityTabContent(
+                                    globalPostsResource = globalPostsResource,
+                                    onOpenDetail = { selectedGlobalPostForDetail = it },
+                                    onApprove = { viewModel.approveGlobalPost(it.postId) },
+                                    onRejectOrDelete = { viewModel.rejectOrDeleteGlobalPost(it.postId) },
+                                    onEdit = { selectedGlobalPostForEdit = it },
+                                    onTogglePin = { viewModel.togglePinGlobalPost(it) },
+                                )
+                            }
                         }
+                    }
+                    else -> {
+                        // Tab 2: Activity & Audit Logs
+                        com.qawmialumni.app.presentation.components.AuditLogsListSection(
+                            auditLogsResource = auditLogsResource,
+                        )
                     }
                 }
             }
@@ -356,6 +398,14 @@ fun SuperAdminDashboardScreen(
         SuperAdminCreateGlobalPostDialog(
             viewModel = viewModel,
             onDismiss = { showCreateOfficialGlobalPostDialog = false },
+        )
+    }
+
+    if (showNotificationSettingsDialog) {
+        com.qawmialumni.app.presentation.components.NotificationSettingsDialog(
+            dataStore = viewModel.dataStore,
+            notificationHelper = viewModel.notificationHelper,
+            onDismiss = { showNotificationSettingsDialog = false },
         )
     }
 }

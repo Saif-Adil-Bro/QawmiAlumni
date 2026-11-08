@@ -54,6 +54,7 @@ class AlbumViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val communityRepository: CommunityRepository,
     val dataStore: UserPreferencesDataStore,
+    val notificationHelper: com.qawmialumni.app.core.notification.NotificationHelper,
 ) : ViewModel() {
 
     val session = dataStore.userSession.stateIn(

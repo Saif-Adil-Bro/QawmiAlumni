@@ -413,6 +413,76 @@ object QawmiIcons {
             }
         }.build()
     }
+
+    val NotificationBell: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "NotificationBell",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(12f, 22f)
+                curveTo(13.1f, 22f, 14f, 21.1f, 14f, 20f)
+                horizontalLineTo(10f)
+                curveTo(10f, 21.1f, 10.9f, 22f, 12f, 22f)
+                close()
+                moveTo(18f, 16f)
+                verticalLineTo(11f)
+                curveTo(18f, 7.93f, 16.37f, 5.36f, 13.5f, 4.68f)
+                verticalLineTo(4f)
+                curveTo(13.5f, 3.17f, 12.83f, 2.5f, 12f, 2.5f)
+                curveTo(11.17f, 2.5f, 10.5f, 3.17f, 10.5f, 4f)
+                verticalLineTo(4.68f)
+                curveTo(7.64f, 5.36f, 6f, 7.92f, 6f, 11f)
+                verticalLineTo(16f)
+                lineTo(4f, 18f)
+                verticalLineTo(19f)
+                horizontalLineTo(20f)
+                verticalLineTo(18f)
+                lineTo(18f, 16f)
+                close()
+            }
+        }.build()
+    }
+
+    val AuditHistory: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "AuditHistory",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(13f, 3f)
+                curveTo(8.03f, 3f, 4f, 7.03f, 4f, 12f)
+                horizontalLineTo(1f)
+                lineTo(4.89f, 15.89f)
+                lineTo(5f, 16f)
+                lineTo(9f, 12f)
+                horizontalLineTo(6f)
+                curveTo(6f, 8.13f, 9.13f, 5f, 13f, 5f)
+                curveTo(16.87f, 5f, 20f, 8.13f, 20f, 12f)
+                curveTo(20f, 15.87f, 16.87f, 19f, 13f, 19f)
+                curveTo(11.07f, 19f, 9.32f, 18.21f, 8.06f, 16.94f)
+                lineTo(6.64f, 18.36f)
+                curveTo(8.27f, 19.99f, 10.51f, 21f, 13f, 21f)
+                curveTo(17.97f, 21f, 22f, 16.97f, 22f, 12f)
+                curveTo(22f, 7.03f, 17.97f, 3f, 13f, 3f)
+                close()
+                moveTo(12f, 8f)
+                verticalLineTo(13f)
+                lineTo(16.28f, 15.54f)
+                lineTo(17f, 14.33f)
+                lineTo(13.5f, 12.25f)
+                verticalLineTo(8f)
+                horizontalLineTo(12f)
+                close()
+            }
+        }.build()
+    }
 }
 
 /**

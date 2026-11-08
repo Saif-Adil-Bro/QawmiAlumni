@@ -35,6 +35,12 @@ data class CachedUserSession(
     val isApproved: Boolean get() = status == UserStatus.APPROVED
 }
 
+data class NotificationSettings(
+    val chatNotificationsEnabled: Boolean = true,
+    val noticeNotificationsEnabled: Boolean = true,
+    val forumNotificationsEnabled: Boolean = true,
+)
+
 @Singleton
 class UserPreferencesDataStore @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -48,6 +54,11 @@ class UserPreferencesDataStore @Inject constructor(
         val MADRASA_ID = stringPreferencesKey("madrasa_id")
         val STATUS = stringPreferencesKey("status")
         val LAST_SYNC = longPreferencesKey("last_sync_timestamp")
+
+        // Notification Settings
+        val NOTIF_CHAT = androidx.datastore.preferences.core.booleanPreferencesKey("notif_chat_enabled")
+        val NOTIF_NOTICE = androidx.datastore.preferences.core.booleanPreferencesKey("notif_notice_enabled")
+        val NOTIF_FORUM = androidx.datastore.preferences.core.booleanPreferencesKey("notif_forum_enabled")
     }
 
     val userSession: Flow<CachedUserSession> = context.dataStore.data
@@ -82,6 +93,30 @@ class UserPreferencesDataStore @Inject constructor(
     suspend fun updateLastSyncTimestamp(timestamp: Long) {
         context.dataStore.edit { prefs ->
             prefs[Keys.LAST_SYNC] = timestamp
+        }
+    }
+
+    val notificationSettings: Flow<NotificationSettings> = context.dataStore.data
+        .catch { exception ->
+            if (exception is IOException) emit(emptyPreferences()) else throw exception
+        }
+        .map { prefs ->
+            NotificationSettings(
+                chatNotificationsEnabled = prefs[Keys.NOTIF_CHAT] ?: true,
+                noticeNotificationsEnabled = prefs[Keys.NOTIF_NOTICE] ?: true,
+                forumNotificationsEnabled = prefs[Keys.NOTIF_FORUM] ?: true,
+            )
+        }
+
+    suspend fun updateNotificationSettings(
+        chatEnabled: Boolean,
+        noticeEnabled: Boolean,
+        forumEnabled: Boolean,
+    ) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.NOTIF_CHAT] = chatEnabled
+            prefs[Keys.NOTIF_NOTICE] = noticeEnabled
+            prefs[Keys.NOTIF_FORUM] = forumEnabled
         }
     }
 

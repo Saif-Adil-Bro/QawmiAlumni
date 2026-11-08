@@ -88,6 +88,7 @@ fun MadrasaAdminPanel(
     val pendingRes by viewModel.pendingRequests.collectAsState()
     val ustadsRes by viewModel.ustadsList.collectAsState()
     val noticesRes by viewModel.noticesList.collectAsState()
+    val auditLogsRes by viewModel.auditLogs.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showAddUstadDialog by remember { mutableStateOf(false) }
@@ -166,6 +167,11 @@ fun MadrasaAdminPanel(
                     onClick = { selectedSubTab = 2 },
                     text = { Text("নোটিশ প্রকাশ", fontWeight = FontWeight.Bold) },
                 )
+                Tab(
+                    selected = selectedSubTab == 3,
+                    onClick = { selectedSubTab = 3 },
+                    text = { Text("অ্যাক্টিভিটি লগ", fontWeight = FontWeight.Bold) },
+                )
             }
 
             when (selectedSubTab) {
@@ -177,6 +183,9 @@ fun MadrasaAdminPanel(
                 2 -> NoticesManagementSection(
                     viewModel = viewModel,
                     onCreateNoticeClick = { showCreateNoticeDialog = true },
+                )
+                3 -> com.qawmialumni.app.presentation.components.AuditLogsListSection(
+                    auditLogsResource = auditLogsRes,
                 )
             }
         }

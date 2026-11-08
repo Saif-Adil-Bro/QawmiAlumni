@@ -90,6 +90,21 @@ class MadrasaAdminViewModel @Inject constructor(
             initialValue = Resource.Loading,
         )
 
+    // Realtime Activity & Audit Logs for this madrasa
+    val auditLogs: StateFlow<Resource<List<com.qawmialumni.app.domain.model.AuditLog>>> = dataStore.userSession
+        .flatMapLatest { session ->
+            if (session.madrasaId.isNotBlank()) {
+                adminRepository.getAuditLogs(session.madrasaId)
+            } else {
+                flowOf(Resource.Success(emptyList()))
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = Resource.Loading,
+        )
+
     fun approveStudent(userId: String) {
         val madrasaId = currentSession.value?.madrasaId ?: return
         viewModelScope.launch {

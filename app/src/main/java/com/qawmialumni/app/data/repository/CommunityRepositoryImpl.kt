@@ -17,10 +17,16 @@ import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
 import com.qawmialumni.app.domain.model.PostComment
 import com.qawmialumni.app.domain.model.VerificationStatus
+import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
+import com.qawmialumni.app.core.notification.NotificationHelper
+import com.qawmialumni.app.domain.model.AuditActionType
+import com.qawmialumni.app.domain.model.AuditLog
+import com.qawmialumni.app.domain.repository.AdminRepository
 import com.qawmialumni.app.domain.repository.CommunityRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,6 +35,9 @@ import javax.inject.Singleton
 class CommunityRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val imageUploadRepository: ImageUploadRepository,
+    private val userPreferencesDataStore: UserPreferencesDataStore,
+    private val notificationHelper: NotificationHelper,
+    private val adminRepository: dagger.Lazy<AdminRepository>,
 ) : CommunityRepository {
 
     private val localPostsFallback = mutableMapOf<String, ForumPost>()
@@ -119,6 +128,30 @@ class CommunityRepositoryImpl @Inject constructor(
                     .update("approvalStatus", VerificationStatus.APPROVED.wireValue)
                     .await()
             }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                val post = localPostsFallback[postId]
+                adminRepository.get().recordAuditLog(
+                    AuditLog(
+                        madrasaId = ForumPost.GLOBAL_FORUM_ID,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "সুপার অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.FORUM_POST_APPROVED,
+                        targetTitle = post?.title ?: "পোস্ট ($postId)",
+                        details = "গ্লোবাল ফোরামের পোস্ট অনুমোদন করা হয়েছে",
+                    )
+                )
+                if (post != null) {
+                    notificationHelper.showForumPostNotification(
+                        title = post.title,
+                        authorName = post.authorName,
+                        postId = postId,
+                    )
+                }
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "অনুমোদন ব্যর্থ", e)
@@ -183,6 +216,30 @@ class CommunityRepositoryImpl @Inject constructor(
                     .set(ForumPostDto.fromDomain(finalPost))
                     .await()
             }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                adminRepository.get().recordAuditLog(
+                    AuditLog(
+                        madrasaId = finalPost.madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { finalPost.authorName },
+                        actorRole = session.role,
+                        actionType = AuditActionType.FORUM_POST_CREATED,
+                        targetTitle = finalPost.title,
+                        details = "ফোরামে নতুন পোস্ট তৈরি করা হয়েছে (${finalPost.category.banglaName})",
+                    )
+                )
+
+                if (finalPost.approvalStatus == VerificationStatus.APPROVED) {
+                    notificationHelper.showForumPostNotification(
+                        title = finalPost.title,
+                        authorName = finalPost.authorName,
+                        postId = postId,
+                    )
+                }
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "পোস্ট প্রকাশ ব্যর্থ", e)
@@ -216,10 +273,27 @@ class CommunityRepositoryImpl @Inject constructor(
 
     override suspend fun deletePost(postId: String): Resource<Unit> {
         return try {
+            val post = localPostsFallback[postId]
             localPostsFallback.remove(postId)
             runCatching {
                 firestore.collection("forum_posts").document(postId).delete().await()
             }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                adminRepository.get().recordAuditLog(
+                    AuditLog(
+                        madrasaId = post?.madrasaId.orEmpty(),
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.FORUM_POST_DELETED,
+                        targetTitle = post?.title ?: "পোস্ট ($postId)",
+                        details = "ফোরাম পোস্ট মুছে ফেলা হয়েছে",
+                    )
+                )
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "পোস্ট মুছে ফেলা যায়নি", e)
@@ -228,6 +302,7 @@ class CommunityRepositoryImpl @Inject constructor(
 
     override suspend fun togglePinPost(postId: String, isPinned: Boolean): Resource<Unit> {
         return try {
+            val post = localPostsFallback[postId]
             localPostsFallback[postId]?.let {
                 localPostsFallback[postId] = it.copy(isPinned = isPinned)
             }
@@ -236,6 +311,22 @@ class CommunityRepositoryImpl @Inject constructor(
                     .update("isPinned", isPinned)
                     .await()
             }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                adminRepository.get().recordAuditLog(
+                    AuditLog(
+                        madrasaId = post?.madrasaId.orEmpty(),
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.FORUM_POST_PINNED,
+                        targetTitle = post?.title ?: "পোস্ট ($postId)",
+                        details = if (isPinned) "ফোরাম পোস্ট পিন করা হয়েছে" else "ফোরাম পোস্ট আনপিন করা হয়েছে",
+                    )
+                )
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "পিন স্ট্যাটাস পরিবর্তন ব্যর্থ", e)
@@ -400,6 +491,14 @@ class CommunityRepositoryImpl @Inject constructor(
 
             runCatching {
                 roomRef.set(roomData, SetOptions.merge()).await()
+            }
+
+            runCatching {
+                notificationHelper.showChatMessageNotification(
+                    senderName = senderName,
+                    messageText = text.trim(),
+                    roomId = roomId,
+                )
             }
 
             Resource.Success(Unit)

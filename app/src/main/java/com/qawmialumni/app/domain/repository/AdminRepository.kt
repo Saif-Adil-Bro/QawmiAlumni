@@ -75,4 +75,9 @@ interface AdminRepository {
         userId: String,
         isCurrentlyGoing: Boolean,
     ): Resource<Unit>
+
+    // Audit Activity Logging
+    suspend fun recordAuditLog(log: com.qawmialumni.app.domain.model.AuditLog): Resource<Unit>
+
+    fun getAuditLogs(madrasaId: String = ""): Flow<Resource<List<com.qawmialumni.app.domain.model.AuditLog>>>
 }
