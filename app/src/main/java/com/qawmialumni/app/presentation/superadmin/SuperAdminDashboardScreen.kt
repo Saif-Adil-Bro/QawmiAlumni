@@ -5,6 +5,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -243,38 +245,85 @@ fun SuperAdminDashboardScreen(
                 .padding(innerPadding),
             color = MaterialTheme.colorScheme.background,
         ) {
-            if (selectedTab == 0) {
-                MadrasaManagementTabContent(
-                    madrasasResource = madrasasResource,
-                    onAssignAdminClick = { selectedMadrasaForAdminAssign = it },
-                )
-            } else {
-                // Tab 1: Global Forum Authority (Approve, Manage, Edit, Pin, Delete)
-                val activeDetail = selectedGlobalPostForDetail
-                if (activeDetail != null) {
-                    val livePost = (globalPostsResource as? Resource.Success)?.data
-                        ?.firstOrNull { it.postId == activeDetail.postId } ?: activeDetail
-
-                    SuperAdminGlobalPostDetailView(
-                        post = livePost,
-                        onBack = { selectedGlobalPostForDetail = null },
-                        onApprove = { viewModel.approveGlobalPost(livePost.postId) },
-                        onRejectOrDelete = {
-                            viewModel.rejectOrDeleteGlobalPost(livePost.postId)
-                            selectedGlobalPostForDetail = null
-                        },
-                        onEdit = { selectedGlobalPostForEdit = livePost },
-                        onTogglePin = { viewModel.togglePinGlobalPost(livePost) },
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    val forward = targetState > initialState
+                    (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                        androidx.compose.animation.slideInHorizontally(
+                            animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> if (forward) fullWidth / 4 else -fullWidth / 4 }
+                        )) togetherWith
+                        (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                            androidx.compose.animation.slideOutHorizontally(
+                                animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                targetOffsetX = { fullWidth -> if (forward) -fullWidth / 4 else fullWidth / 4 }
+                            ))
+                },
+                label = "SuperAdminTabTransition",
+            ) { tab ->
+                if (tab == 0) {
+                    MadrasaManagementTabContent(
+                        madrasasResource = madrasasResource,
+                        onAssignAdminClick = { selectedMadrasaForAdminAssign = it },
                     )
                 } else {
-                    GlobalForumAuthorityTabContent(
-                        globalPostsResource = globalPostsResource,
-                        onOpenDetail = { selectedGlobalPostForDetail = it },
-                        onApprove = { viewModel.approveGlobalPost(it.postId) },
-                        onRejectOrDelete = { viewModel.rejectOrDeleteGlobalPost(it.postId) },
-                        onEdit = { selectedGlobalPostForEdit = it },
-                        onTogglePin = { viewModel.togglePinGlobalPost(it) },
-                    )
+                    // Tab 1: Global Forum Authority (Approve, Manage, Edit, Pin, Delete)
+                    AnimatedContent(
+                        targetState = selectedGlobalPostForDetail,
+                        transitionSpec = {
+                            if (targetState != null) {
+                                (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                                    androidx.compose.animation.slideInHorizontally(
+                                        animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                        initialOffsetX = { fullWidth -> fullWidth / 3 }
+                                    )) togetherWith
+                                    (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                                        androidx.compose.animation.slideOutHorizontally(
+                                            animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                            targetOffsetX = { fullWidth -> -fullWidth / 4 }
+                                        ))
+                            } else {
+                                (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                                    androidx.compose.animation.slideInHorizontally(
+                                        animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                        initialOffsetX = { fullWidth -> -fullWidth / 3 }
+                                    )) togetherWith
+                                    (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                                        androidx.compose.animation.slideOutHorizontally(
+                                            animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                            targetOffsetX = { fullWidth -> fullWidth / 4 }
+                                        ))
+                            }
+                        },
+                        label = "SuperAdminGlobalPostDetailTransition",
+                    ) { activeDetail ->
+                        if (activeDetail != null) {
+                            val livePost = (globalPostsResource as? Resource.Success)?.data
+                                ?.firstOrNull { it.postId == activeDetail.postId } ?: activeDetail
+
+                            SuperAdminGlobalPostDetailView(
+                                post = livePost,
+                                onBack = { selectedGlobalPostForDetail = null },
+                                onApprove = { viewModel.approveGlobalPost(livePost.postId) },
+                                onRejectOrDelete = {
+                                    viewModel.rejectOrDeleteGlobalPost(livePost.postId)
+                                    selectedGlobalPostForDetail = null
+                                },
+                                onEdit = { selectedGlobalPostForEdit = livePost },
+                                onTogglePin = { viewModel.togglePinGlobalPost(livePost) },
+                            )
+                        } else {
+                            GlobalForumAuthorityTabContent(
+                                globalPostsResource = globalPostsResource,
+                                onOpenDetail = { selectedGlobalPostForDetail = it },
+                                onApprove = { viewModel.approveGlobalPost(it.postId) },
+                                onRejectOrDelete = { viewModel.rejectOrDeleteGlobalPost(it.postId) },
+                                onEdit = { selectedGlobalPostForEdit = it },
+                                onTogglePin = { viewModel.togglePinGlobalPost(it) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -686,7 +735,7 @@ private fun SuperAdminGlobalForumPostCard(
                 ) {
                     Icon(
                         imageVector = if (isPending) Icons.Default.Close else Icons.Default.Delete,
-                        contentDescription = "মুছুন / বাতিল",
+                        contentDescription = "মুছুন",
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(18.dp),
                     )
@@ -851,7 +900,7 @@ private fun SuperAdminGlobalPostDetailView(
                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
                         shape = RoundedCornerShape(10.dp),
                     ) {
-                        Text("✓ অনুমোদন করুন", fontWeight = FontWeight.Bold)
+                        Text("অনুমোদন", fontWeight = FontWeight.Bold)
                     }
                 }
                 OutlinedButton(
@@ -859,14 +908,14 @@ private fun SuperAdminGlobalPostDetailView(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp),
                 ) {
-                    Text("✎ সম্পাদনা", fontWeight = FontWeight.Bold, color = EmeraldPrimary)
+                    Text("সম্পাদনা", fontWeight = FontWeight.Bold, color = EmeraldPrimary)
                 }
                 OutlinedButton(
                     onClick = onTogglePin,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp),
                 ) {
-                    Text(if (post.isPinned) "আনপিন" else "📌 পিন", fontWeight = FontWeight.Bold, color = HeritageGold)
+                    Text(if (post.isPinned) "আনপিন" else "পিন", fontWeight = FontWeight.Bold, color = HeritageGold)
                 }
                 OutlinedButton(
                     onClick = onRejectOrDelete,

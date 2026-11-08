@@ -150,10 +150,10 @@ fun AlbumDirectoryScreen(
 
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        // Filter Drawer Toggle Button
+                        // Filter Drawer Toggle Button (Icon only)
                         Surface(
                             modifier = Modifier
-                                .height(52.dp)
+                                .size(50.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .clickable { showAdvancedFilters = !showAdvancedFilters },
                             color = if (showAdvancedFilters || filterState.hasActiveFilters) {
@@ -163,30 +163,19 @@ fun AlbumDirectoryScreen(
                             },
                             shape = RoundedCornerShape(14.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
                                     imageVector = QawmiIcons.FilterSliders,
-                                    contentDescription = "Filters",
+                                    contentDescription = "ফিল্টার",
                                     tint = if (showAdvancedFilters || filterState.hasActiveFilters) {
                                         Color.White
                                     } else {
                                         EmeraldPrimary
                                     },
-                                    modifier = Modifier.size(20.dp),
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "ফিল্টার",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (showAdvancedFilters || filterState.hasActiveFilters) {
-                                        Color.White
-                                    } else {
-                                        EmeraldPrimary
-                                    },
+                                    modifier = Modifier.size(22.dp),
                                 )
                             }
                         }

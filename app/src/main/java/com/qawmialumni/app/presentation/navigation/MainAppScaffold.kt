@@ -1,6 +1,8 @@
 package com.qawmialumni.app.presentation.navigation
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -136,25 +138,21 @@ fun MainAppScaffold(
                         }
                     },
                     actions = {
-                        Button(
+                        IconButton(
                             onClick = { showSelfProfileDialog = true },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White.copy(alpha = 0.14f),
-                                contentColor = Color.White,
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.16f)),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Person,
                                 contentDescription = "প্রোফাইল",
-                                modifier = Modifier.size(15.dp),
+                                modifier = Modifier.size(20.dp),
                                 tint = HeritageGoldLight,
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("প্রোফাইল", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         IconButton(
                             onClick = onSignOut,
                             modifier = Modifier
@@ -298,7 +296,23 @@ fun MainAppScaffold(
                 .padding(innerPadding),
             color = MaterialTheme.colorScheme.background,
         ) {
-            Crossfade(targetState = selectedTab, label = "MainTabCrossfade") { tab ->
+            androidx.compose.animation.AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    val forward = targetState > initialState
+                    (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                        androidx.compose.animation.slideInHorizontally(
+                            animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> if (forward) fullWidth / 4 else -fullWidth / 4 }
+                        )) togetherWith
+                        (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(200)) +
+                            androidx.compose.animation.slideOutHorizontally(
+                                animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                targetOffsetX = { fullWidth -> if (forward) -fullWidth / 4 else fullWidth / 4 }
+                            ))
+                },
+                label = "MainTabTransition",
+            ) { tab ->
                 when (tab) {
                     0 -> AlbumDirectoryScreen(showStaffTools = showStaffTools, viewModel = albumViewModel)
                     1 -> ForumFeedScreen()

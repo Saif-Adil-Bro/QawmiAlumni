@@ -243,7 +243,7 @@ fun PublicNoticeCard(
                                 modifier = Modifier.size(15.dp),
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("অংশগ্রহণ নিশ্চিত", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("নিশ্চিত", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     } else {
                         OutlinedButton(
@@ -251,7 +251,7 @@ fun PublicNoticeCard(
                             shape = RoundedCornerShape(50),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                         ) {
-                            Text("ইনশাআল্লাহ আসব", fontSize = 12.sp, color = EmeraldPrimary, fontWeight = FontWeight.Bold)
+                            Text("অংশগ্রহণ", fontSize = 12.sp, color = EmeraldPrimary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

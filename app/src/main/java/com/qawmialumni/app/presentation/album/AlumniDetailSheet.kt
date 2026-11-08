@@ -115,7 +115,7 @@ fun AlumniDetailSheet(
                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
                         shape = RoundedCornerShape(12.dp),
                     ) {
-                        Text("সরাসরি কল", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                        Text("কল", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
                     }
                 }
             }
@@ -134,7 +134,7 @@ fun AlumniDetailSheet(
                             .height(44.dp),
                         shape = RoundedCornerShape(12.dp),
                     ) {
-                        Text("✉️ ইন-অ্যাপ মেসেজ", fontWeight = FontWeight.Bold, color = EmeraldPrimary, fontSize = 12.sp)
+                        Text("বার্তা", fontWeight = FontWeight.Bold, color = EmeraldPrimary, fontSize = 12.sp)
                     }
                 }
 
@@ -145,7 +145,7 @@ fun AlumniDetailSheet(
                         .height(44.dp),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("📤 পরিচিতি শেয়ার", fontWeight = FontWeight.Bold, color = HeritageGold, fontSize = 12.sp)
+                    Text("শেয়ার", fontWeight = FontWeight.Bold, color = HeritageGold, fontSize = 12.sp)
                 }
             }
 

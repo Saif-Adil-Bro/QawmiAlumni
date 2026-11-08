@@ -61,6 +61,9 @@ import com.qawmialumni.app.presentation.theme.EmeraldPrimary
 import com.qawmialumni.app.presentation.theme.HeritageGold
 import com.qawmialumni.app.presentation.theme.HeritageGoldLight
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+
 @Composable
 fun ChatListScreen(
     viewModel: ChatViewModel = hiltViewModel(),
@@ -70,26 +73,52 @@ fun ChatListScreen(
 
     var activeRoomForChat by remember { mutableStateOf<ChatRoom?>(null) }
 
-    // If a conversation is selected, open Full-Page WhatsApp-Style Chat View instead of a popup dialog
-    activeRoomForChat?.let { room ->
-        val currentUid = session?.uid.orEmpty()
-        val otherUid = room.participants.firstOrNull { it != currentUid } ?: ""
-        val otherName = room.participantNames[otherUid] ?: "সাথী"
-        val otherPhoto = room.participantPhotos[otherUid] ?: ""
+    AnimatedContent(
+        targetState = activeRoomForChat,
+        transitionSpec = {
+            if (targetState != null) {
+                (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                    androidx.compose.animation.slideInHorizontally(
+                        animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        initialOffsetX = { fullWidth -> fullWidth / 3 }
+                    )) togetherWith
+                    (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                        androidx.compose.animation.slideOutHorizontally(
+                            animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> -fullWidth / 4 }
+                        ))
+            } else {
+                (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                    androidx.compose.animation.slideInHorizontally(
+                        animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        initialOffsetX = { fullWidth -> -fullWidth / 3 }
+                    )) togetherWith
+                    (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                        androidx.compose.animation.slideOutHorizontally(
+                            animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> fullWidth / 4 }
+                        ))
+            }
+        },
+        label = "ChatScreenTransition",
+    ) { room ->
+        if (room != null) {
+            val currentUid = session?.uid.orEmpty()
+            val otherUid = room.participants.firstOrNull { it != currentUid } ?: ""
+            val otherName = room.participantNames[otherUid] ?: "সাথী"
+            val otherPhoto = room.participantPhotos[otherUid] ?: ""
 
-        FullPageChatRoomScreen(
-            room = room,
-            currentUid = currentUid,
-            otherUid = otherUid,
-            otherName = otherName,
-            otherPhoto = otherPhoto,
-            viewModel = viewModel,
-            onBack = { activeRoomForChat = null },
-        )
-        return
-    }
-
-    when (val res = roomsResource) {
+            FullPageChatRoomScreen(
+                room = room,
+                currentUid = currentUid,
+                otherUid = otherUid,
+                otherName = otherName,
+                otherPhoto = otherPhoto,
+                viewModel = viewModel,
+                onBack = { activeRoomForChat = null },
+            )
+        } else {
+            when (val res = roomsResource) {
         is Resource.Loading -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = EmeraldPrimary)
@@ -132,6 +161,8 @@ fun ChatListScreen(
             }
         }
     }
+}
+}
 }
 
 @Composable

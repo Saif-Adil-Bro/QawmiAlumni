@@ -341,7 +341,7 @@ fun PendingStudentCard(
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
                     shape = RoundedCornerShape(8.dp),
                 ) {
-                    Text("বাতিল (Reject)", fontSize = 12.sp)
+                    Text("বাতিল", fontSize = 12.sp)
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
@@ -349,7 +349,7 @@ fun PendingStudentCard(
                     colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
                     shape = RoundedCornerShape(8.dp),
                 ) {
-                    Text("অনুমোদন (Approve)", fontSize = 12.sp)
+                    Text("অনুমোদন", fontSize = 12.sp)
                 }
             }
         }

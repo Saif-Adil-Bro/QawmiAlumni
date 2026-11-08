@@ -3,6 +3,7 @@ package com.qawmialumni.app.presentation.forum
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.togetherWith
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -123,63 +124,93 @@ fun ForumFeedScreen(
         currentPosts.firstOrNull { it.postId == selectedPostIdForDetail }
     }
 
-    // If a post is selected, open the FULL-PAGE Post Detail + Inline Facebook-style Comments Screen!
-    if (activeDetailPost != null) {
-        val canModerateThisPost = if (activeDetailPost.isGlobal) {
-            isSuperAdmin
-        } else {
-            isMadrasaModerator
-        }
-        val canEditOrDelete = canModerateThisPost || activeDetailPost.authorUid == currentUid
+    androidx.compose.animation.AnimatedContent(
+        targetState = activeDetailPost,
+        transitionSpec = {
+            if (targetState != null) {
+                // Opening detail screen: smooth slide in from right + fade in
+                (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                    androidx.compose.animation.slideInHorizontally(
+                        animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        initialOffsetX = { fullWidth -> fullWidth / 3 },
+                    )) togetherWith
+                    (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                        androidx.compose.animation.slideOutHorizontally(
+                            animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> -fullWidth / 4 },
+                        ))
+            } else {
+                // Going back to list: smooth slide in from left + fade in
+                (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
+                    androidx.compose.animation.slideInHorizontally(
+                        animationSpec = androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                    )) togetherWith
+                    (androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(180)) +
+                        androidx.compose.animation.slideOutHorizontally(
+                            animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> fullWidth / 4 },
+                        ))
+            }
+        },
+        label = "ForumDetailTransition",
+    ) { detailPost ->
+        if (detailPost != null) {
+            val canModerateThisPost = if (detailPost.isGlobal) {
+                isSuperAdmin
+            } else {
+                isMadrasaModerator
+            }
+            val canEditOrDelete = canModerateThisPost || detailPost.authorUid == currentUid
 
-        ForumPostDetailScreen(
-            post = activeDetailPost,
-            isLikedByMe = currentUid.isNotBlank() && currentUid in activeDetailPost.likedByUids,
-            canPin = canModerateThisPost,
-            canEditOrDelete = canEditOrDelete,
-            viewModel = viewModel,
-            onBack = { selectedPostIdForDetail = null },
-            onLikeClick = { viewModel.toggleLike(activeDetailPost) },
-            onPinClick = { viewModel.togglePinPost(activeDetailPost) },
-            onEditClick = { postToEdit = activeDetailPost },
-            onDeleteClick = {
-                viewModel.deletePost(activeDetailPost.postId)
-                selectedPostIdForDetail = null
-            },
-        )
-    } else {
-        // Summary List View (Madrasa Forum vs Global Forum)
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Scope Tabs: নিজ মাদরাসা ফোরাম vs গ্লোবাল কওমি ফোরাম
-                PrimaryTabRow(
-                    selectedTabIndex = if (isGlobalScope) 1 else 0,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = EmeraldPrimary,
-                ) {
-                    Tab(
-                        selected = !isGlobalScope,
-                        onClick = { viewModel.setGlobalScope(false) },
-                        text = {
-                            Text(
-                                "নিজ মাদরাসা ফোরাম",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                            )
-                        },
-                    )
-                    Tab(
-                        selected = isGlobalScope,
-                        onClick = { viewModel.setGlobalScope(true) },
-                        text = {
-                            Text(
-                                "গ্লোবাল কওমি ফোরাম",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                            )
-                        },
-                    )
-                }
+            ForumPostDetailScreen(
+                post = detailPost,
+                isLikedByMe = currentUid.isNotBlank() && currentUid in detailPost.likedByUids,
+                canPin = canModerateThisPost,
+                canEditOrDelete = canEditOrDelete,
+                viewModel = viewModel,
+                onBack = { selectedPostIdForDetail = null },
+                onLikeClick = { viewModel.toggleLike(detailPost) },
+                onPinClick = { viewModel.togglePinPost(detailPost) },
+                onEditClick = { postToEdit = detailPost },
+                onDeleteClick = {
+                    viewModel.deletePost(detailPost.postId)
+                    selectedPostIdForDetail = null
+                },
+            )
+        } else {
+            // Summary List View (Madrasa Forum vs Global Forum)
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Scope Tabs: নিজ মাদরাসা vs গ্লোবাল ফোরাম
+                    PrimaryTabRow(
+                        selectedTabIndex = if (isGlobalScope) 1 else 0,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = EmeraldPrimary,
+                    ) {
+                        Tab(
+                            selected = !isGlobalScope,
+                            onClick = { viewModel.setGlobalScope(false) },
+                            text = {
+                                Text(
+                                    "মাদরাসা ফোরাম",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                )
+                            },
+                        )
+                        Tab(
+                            selected = isGlobalScope,
+                            onClick = { viewModel.setGlobalScope(true) },
+                            text = {
+                                Text(
+                                    "গ্লোবাল ফোরাম",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                )
+                            },
+                        )
+                    }
 
                 // Category Filter Bar
                 Surface(
@@ -295,6 +326,7 @@ fun ForumFeedScreen(
             )
         }
     }
+}
 
     if (showCreatePostDialog) {
         CreatePostDialog(
@@ -756,7 +788,7 @@ fun ForumPostDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "সরাসরি কল করুন: ${post.contactPhone}",
+                                    text = "কল করুন: ${post.contactPhone}",
                                     color = EmeraldPrimary,
                                     fontWeight = FontWeight.Bold,
                                 )
