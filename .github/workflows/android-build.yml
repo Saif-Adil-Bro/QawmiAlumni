@@ -56,9 +56,9 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon --stacktrace || (echo "Retrying assembleDebug after transient error..." && sleep 5 && ./gradlew assembleDebug --no-daemon --stacktrace)
           if [ -f "app/release-keystore.jks" ]; then
-            ./gradlew assembleRelease
+            ./gradlew assembleRelease --no-daemon --stacktrace || (echo "Retrying assembleRelease after transient error..." && sleep 5 && ./gradlew assembleRelease --no-daemon --stacktrace)
           fi
 
       - name: Upload Debug APK Artifact
