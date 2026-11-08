@@ -79,6 +79,9 @@ fun NotificationCenterDialog(
     dataStore: UserPreferencesDataStore,
     notificationHelper: NotificationHelper,
     onDismiss: () -> Unit,
+    onNavigateToChat: ((roomId: String) -> Unit)? = null,
+    onNavigateToForumPost: ((postId: String) -> Unit)? = null,
+    onNavigateToNotice: ((noticeId: String) -> Unit)? = null,
 ) {
     val notifications by notificationHelper.notificationsList.collectAsState()
     var selectedFilter by remember { mutableStateOf<NotificationType?>(null) }
@@ -349,7 +352,16 @@ fun NotificationCenterDialog(
                         items(filteredList, key = { it.id }) { item ->
                             NotificationCardItem(
                                 notification = item,
-                                onClick = { notificationHelper.markAsRead(item.id) },
+                                onClick = {
+                                    notificationHelper.markAsRead(item.id)
+                                    onDismiss()
+                                    when (item.type) {
+                                        NotificationType.CHAT -> onNavigateToChat?.invoke(item.targetId)
+                                        NotificationType.FORUM -> onNavigateToForumPost?.invoke(item.targetId)
+                                        NotificationType.NOTICE -> onNavigateToNotice?.invoke(item.targetId)
+                                        NotificationType.ADMIN -> {}
+                                    }
+                                },
                                 onDelete = { notificationHelper.deleteNotification(item.id) },
                             )
                         }

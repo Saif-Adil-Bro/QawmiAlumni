@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -112,6 +113,7 @@ import com.qawmialumni.app.presentation.theme.HeritageGold
 @Composable
 fun ForumFeedScreen(
     viewModel: ForumViewModel = hiltViewModel(),
+    targetPostId: String? = null,
     onDetailActiveChange: (Boolean) -> Unit = {},
 ) {
     val postsResource by viewModel.posts.collectAsState()
@@ -122,6 +124,12 @@ fun ForumFeedScreen(
     var showCreatePostDialog by remember { mutableStateOf(false) }
     var selectedPostIdForDetail by remember { mutableStateOf<String?>(null) }
     var postToEdit by remember { mutableStateOf<ForumPost?>(null) }
+
+    LaunchedEffect(targetPostId) {
+        if (!targetPostId.isNullOrBlank()) {
+            selectedPostIdForDetail = targetPostId
+        }
+    }
 
     val currentUid = session?.uid.orEmpty()
     val isSuperAdmin = session?.role == UserRole.SUPER_ADMIN
@@ -145,9 +153,9 @@ fun ForumFeedScreen(
     }
 
     androidx.compose.animation.AnimatedContent(
-        targetState = activeDetailPost,
+        targetState = selectedPostIdForDetail != null,
         transitionSpec = {
-            if (targetState != null) {
+            if (targetState) {
                 // Opening detail screen: smooth slide in from right + fade in
                 (androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) +
                     androidx.compose.animation.slideInHorizontally(
@@ -174,8 +182,9 @@ fun ForumFeedScreen(
             }
         },
         label = "ForumDetailTransition",
-    ) { detailPost ->
-        if (detailPost != null) {
+    ) { isDetailOpen ->
+        if (isDetailOpen && activeDetailPost != null) {
+            val detailPost = activeDetailPost
             val canModerateThisPost = if (detailPost.isGlobal) {
                 isSuperAdmin
             } else {
@@ -842,6 +851,15 @@ fun ForumPostDetailScreen(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         // Facebook-style Engagement Bar
+                        val likeScale by androidx.compose.animation.core.animateFloatAsState(
+                            targetValue = if (isLikedByMe) 1.3f else 1.0f,
+                            animationSpec = androidx.compose.animation.core.spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
+                            ),
+                            label = "LikeHeartScale",
+                        )
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -852,7 +870,9 @@ fun ForumPostDetailScreen(
                                     imageVector = if (isLikedByMe) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                     contentDescription = "Like",
                                     tint = if (isLikedByMe) Color(0xFFDC2626) else EmeraldPrimary,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .graphicsLayer(scaleX = likeScale, scaleY = likeScale),
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(

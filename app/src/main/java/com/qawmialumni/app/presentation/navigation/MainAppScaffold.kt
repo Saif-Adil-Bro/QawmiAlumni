@@ -53,14 +53,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.qawmialumni.app.core.notification.NotificationType
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.presentation.album.AlbumDirectoryScreen
 import com.qawmialumni.app.presentation.album.AlbumViewModel
 import com.qawmialumni.app.presentation.album.SelfProfileEditDialog
 import com.qawmialumni.app.presentation.chat.ChatListScreen
+import com.qawmialumni.app.presentation.components.AvatarWithRing
 import com.qawmialumni.app.presentation.components.QawmiIcons
 import com.qawmialumni.app.presentation.forum.ForumFeedScreen
 import com.qawmialumni.app.presentation.madrasaadmin.MadrasaAdminPanel
@@ -85,6 +88,9 @@ fun MainAppScaffold(
     showAdminTab: Boolean,
     showStaffTools: Boolean,
     onSignOut: () -> Unit,
+    deepLinkNotificationType: String? = null,
+    deepLinkTargetId: String? = null,
+    onConsumeDeepLink: () -> Unit = {},
     albumViewModel: AlbumViewModel = hiltViewModel(),
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -92,10 +98,33 @@ fun MainAppScaffold(
     var isForumDetailOpen by remember { mutableStateOf(false) }
     var showSelfProfileDialog by remember { mutableStateOf(false) }
     var showNotificationCenter by remember { mutableStateOf(false) }
+    var targetChatRoomId by remember { mutableStateOf<String?>(null) }
+    var targetForumPostId by remember { mutableStateOf<String?>(null) }
+
     val snackbarHostState = remember { SnackbarHostState() }
     val session by albumViewModel.session.collectAsState()
+    val currentMadrasa by albumViewModel.currentMadrasa.collectAsState()
     val notifications by albumViewModel.notificationHelper.notificationsList.collectAsState()
     val unreadNotifCount = remember(notifications) { notifications.count { !it.isRead } }
+
+    LaunchedEffect(deepLinkNotificationType, deepLinkTargetId) {
+        if (!deepLinkNotificationType.isNullOrBlank() && !deepLinkTargetId.isNullOrBlank()) {
+            when (deepLinkNotificationType) {
+                NotificationType.CHAT.name -> {
+                    targetChatRoomId = deepLinkTargetId
+                    selectedTab = 3
+                }
+                NotificationType.FORUM.name -> {
+                    targetForumPostId = deepLinkTargetId
+                    selectedTab = 1
+                }
+                NotificationType.NOTICE.name -> {
+                    selectedTab = 2
+                }
+            }
+            onConsumeDeepLink()
+        }
+    }
 
     val hideScaffoldChrome = (selectedTab == 3 && isChatRoomOpen) || (selectedTab == 1 && isForumDetailOpen)
 
@@ -119,42 +148,60 @@ fun MainAppScaffold(
                 Column(modifier = Modifier.fillMaxWidth()) {
                 TopAppBar(
                     title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.12f))
-                                    .border(1.5.dp, HeritageGoldLight, CircleShape),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = "ق",
-                                    color = HeritageGoldLight,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (currentMadrasa?.logoUrl?.isNotBlank() == true) {
+                                AvatarWithRing(
+                                    photoUrl = currentMadrasa?.logoUrl.orEmpty(),
+                                    name = currentMadrasa?.name ?: "মাদরাসা",
+                                    size = 36.dp,
+                                    ringColor = HeritageGoldLight,
                                 )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.12f))
+                                        .border(1.5.dp, HeritageGoldLight, CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "ق",
+                                        color = HeritageGoldLight,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
                             }
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            val tabName = when (selectedTab) {
+                                0 -> "ফারেগীন অ্যালবাম"
+                                1 -> "ইলমি ফোরাম"
+                                2 -> "নোটিশ বোর্ড"
+                                3 -> "মেসেজ"
+                                4 -> "অ্যাডমিন প্যানেল"
+                                else -> "কওমি নেটওয়ার্ক"
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = when (selectedTab) {
-                                        0 -> "ডিজিটাল ফারেগীন অ্যালবাম"
-                                        1 -> "ইলমি মুযাকারা ও ফোরাম"
-                                        2 -> "দস্তারবন্দী ও নোটিশ বোর্ড"
-                                        3 -> "মেসেজ ও যোগাযোগ"
-                                        4 -> "মাদরাসা অ্যাডমিন প্যানেল"
-                                        else -> "কওমি আলামনাই"
-                                    },
+                                    text = currentMadrasa?.name?.ifBlank { null } ?: "কওমি আলামনাই",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 15.sp,
                                 )
                                 Text(
-                                    text = roleLabel,
+                                    text = "${currentMadrasa?.code?.let { "[$it] " } ?: ""}${roleLabel} • $tabName",
                                     fontSize = 11.sp,
                                     color = HeritageGoldLight,
                                     fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -368,9 +415,15 @@ fun MainAppScaffold(
             ) { tab ->
                 when (tab) {
                     0 -> AlbumDirectoryScreen(showStaffTools = showStaffTools, viewModel = albumViewModel)
-                    1 -> ForumFeedScreen(onDetailActiveChange = { isForumDetailOpen = it })
+                    1 -> ForumFeedScreen(
+                        targetPostId = targetForumPostId,
+                        onDetailActiveChange = { isForumDetailOpen = it },
+                    )
                     2 -> NoticeBoardScreen()
-                    3 -> ChatListScreen(onRoomActiveChange = { isChatRoomOpen = it })
+                    3 -> ChatListScreen(
+                        targetRoomId = targetChatRoomId,
+                        onRoomActiveChange = { isChatRoomOpen = it },
+                    )
                     4 -> if (showAdminTab) MadrasaAdminPanel()
                 }
             }
@@ -389,6 +442,17 @@ fun MainAppScaffold(
             dataStore = albumViewModel.dataStore,
             notificationHelper = albumViewModel.notificationHelper,
             onDismiss = { showNotificationCenter = false },
+            onNavigateToChat = { roomId ->
+                targetChatRoomId = roomId
+                selectedTab = 3
+            },
+            onNavigateToForumPost = { postId ->
+                targetForumPostId = postId
+                selectedTab = 1
+            },
+            onNavigateToNotice = { noticeId ->
+                selectedTab = 2
+            },
         )
     }
 }

@@ -8,6 +8,7 @@ import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.ChatRoom
 import com.qawmialumni.app.domain.model.GraduationDepartment
 import com.qawmialumni.app.domain.model.KhedmatCategory
+import com.qawmialumni.app.domain.model.Madrasa
 import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.UserStatus
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -62,6 +64,22 @@ class AlbumViewModel @Inject constructor(
         started = SharingStarted.Eagerly,
         initialValue = null,
     )
+
+    val currentMadrasa: StateFlow<Madrasa?> = dataStore.userSession
+        .flatMapLatest { userSession ->
+            if (userSession.madrasaId.isBlank()) {
+                flowOf(null)
+            } else {
+                adminRepository.getAllMadrasas().map { res ->
+                    (res as? Resource.Success)?.data?.firstOrNull { it.madrasaId == userSession.madrasaId }
+                }
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null,
+        )
 
     private val _filterState = MutableStateFlow(AlbumFilterState())
     val filterState: StateFlow<AlbumFilterState> = _filterState.asStateFlow()

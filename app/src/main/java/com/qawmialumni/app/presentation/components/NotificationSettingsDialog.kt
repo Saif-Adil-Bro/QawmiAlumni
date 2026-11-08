@@ -1,10 +1,13 @@
 package com.qawmialumni.app.presentation.components
 
+import android.content.Intent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -156,6 +160,48 @@ fun NotificationSettingsDialog(
                         .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    val context = LocalContext.current
+                    val areSysNotificationsEnabled = remember { notificationHelper.areNotificationsEnabled() }
+
+                    if (!areSysNotificationsEnabled) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                            border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = "⚠️ ডিভাইসের সিস্টেম নোটিফিকেশন বন্ধ রয়েছে",
+                                    color = Color(0xFF991B1B),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "মোবাইলের স্ট্যাটাস বার ও স্ক্রিনে পুশ নোটিফিকেশন পেতে অনুগ্রহ করে নোটিফিকেশন চালু করুন।",
+                                    color = Color(0xFF7F1D1D),
+                                    fontSize = 12.sp,
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        runCatching {
+                                            val intent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                            }
+                                            context.startActivity(intent)
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                ) {
+                                    Text("সিস্টেম নোটিফিকেশন চালু করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
                     Text(
                         text = "আপনার পছন্দমতো নোটিফিকেশন অন বা অফ রাখুন:",
                         fontSize = 13.sp,

@@ -1,22 +1,34 @@
 package com.qawmialumni.app.presentation.chat
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imeNestedScroll
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -24,19 +36,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +74,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.ChatRoom
+import com.qawmialumni.app.domain.model.UserProfile
+import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.presentation.components.AvatarWithRing
 import com.qawmialumni.app.presentation.components.ModernEmptyState
 import com.qawmialumni.app.presentation.components.QawmiIcons
@@ -61,28 +84,25 @@ import com.qawmialumni.app.presentation.theme.EmeraldPrimary
 import com.qawmialumni.app.presentation.theme.HeritageGold
 import com.qawmialumni.app.presentation.theme.HeritageGoldLight
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.imeNestedScroll
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-
 @Composable
 fun ChatListScreen(
     viewModel: ChatViewModel = hiltViewModel(),
+    targetRoomId: String? = null,
     onRoomActiveChange: (Boolean) -> Unit = {},
 ) {
     val roomsResource by viewModel.chatRooms.collectAsState()
     val session by viewModel.dataStore.userSession.collectAsState(initial = null)
 
     var activeRoomForChat by remember { mutableStateOf<ChatRoom?>(null) }
+
+    LaunchedEffect(targetRoomId, roomsResource) {
+        if (!targetRoomId.isNullOrBlank() && roomsResource is Resource.Success) {
+            val room = (roomsResource as Resource.Success).data.firstOrNull { it.roomId == targetRoomId }
+            if (room != null) {
+                activeRoomForChat = room
+            }
+        }
+    }
 
     LaunchedEffect(activeRoomForChat) {
         onRoomActiveChange(activeRoomForChat != null)
@@ -274,6 +294,8 @@ fun FullPageChatRoomScreen(
 
     val roomResource by viewModel.observeRoom(room.roomId).collectAsState()
     var messageText by remember { mutableStateOf("") }
+    var showUserProfileSheet by remember { mutableStateOf(false) }
+    val userProfile by viewModel.getUserProfile(otherUid).collectAsState(initial = null)
 
     val liveRoom = (roomResource as? Resource.Success)?.data ?: room
 
@@ -303,31 +325,42 @@ fun FullPageChatRoomScreen(
                     )
                 }
 
-                AvatarWithRing(
-                    photoUrl = otherPhoto,
-                    name = otherName,
-                    size = 42.dp,
-                    ringColor = HeritageGoldLight,
-                    backgroundColor = Color.White.copy(alpha = 0.15f),
-                    textColor = Color.White,
-                )
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = otherName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showUserProfileSheet = true }
+                        .padding(vertical = 4.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AvatarWithRing(
+                        photoUrl = otherPhoto,
+                        name = otherName,
+                        size = 42.dp,
+                        ringColor = HeritageGoldLight,
+                        backgroundColor = Color.White.copy(alpha = 0.15f),
+                        textColor = Color.White,
                     )
-                    Text(
-                        text = "● সরাসরি ইন-অ্যাপ চ্যাট (কওমি নেটওয়ার্ক)",
-                        fontSize = 11.sp,
-                        color = HeritageGoldLight,
-                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = otherName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "● প্রোফাইল ও বিস্তারিত দেখতে ট্যাপ করুন",
+                            fontSize = 11.sp,
+                            color = HeritageGoldLight,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -468,4 +501,172 @@ fun FullPageChatRoomScreen(
             }
         }
     }
+
+    if (showUserProfileSheet) {
+        ChatUserProfileBottomSheet(
+            name = otherName,
+            photoUrl = otherPhoto,
+            profile = userProfile,
+            onDismiss = { showUserProfileSheet = false },
+        )
+    }
 }
+
+/**
+ * WhatsApp-Style User Profile Bottom Sheet.
+ * Displays profile photo, contact actions (call, WhatsApp), and educational details.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatUserProfileBottomSheet(
+    name: String,
+    photoUrl: String,
+    profile: UserProfile?,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            AvatarWithRing(
+                photoUrl = profile?.photoUrl?.ifBlank { photoUrl } ?: photoUrl,
+                name = profile?.name?.ifBlank { name } ?: name,
+                size = 96.dp,
+                ringColor = HeritageGold,
+                backgroundColor = EmeraldDeep.copy(alpha = 0.12f),
+                textColor = EmeraldPrimary,
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = profile?.name?.ifBlank { name } ?: name,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = EmeraldPrimary,
+            )
+
+            val roleLabel = when (profile?.role) {
+                UserRole.SUPER_ADMIN -> "সুপার অ্যাডমিন"
+                UserRole.MADRASA_ADMIN -> "মাদরাসা অ্যাডমিন"
+                UserRole.STAFF -> "আসাতিযায়ে কেরাম / স্টাফ"
+                else -> "ভেরিফায়েড ফারেগ / আলামনাই"
+            }
+            Text(
+                text = roleLabel,
+                fontSize = 13.sp,
+                color = HeritageGold,
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            val phone = profile?.phone.orEmpty()
+            val whatsApp = profile?.whatsApp.orEmpty()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        if (phone.isNotBlank()) {
+                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+                            context.startActivity(intent)
+                        }
+                    },
+                    enabled = phone.isNotBlank(),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(imageVector = Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("কল করুন")
+                }
+
+                Button(
+                    onClick = {
+                        val num = whatsApp.ifBlank { phone }
+                        if (num.isNotBlank()) {
+                            val clean = num.replace("+", "").replace("-", "").replace(" ", "")
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$clean"))
+                            context.startActivity(intent)
+                        }
+                    },
+                    enabled = phone.isNotBlank() || whatsApp.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(imageVector = QawmiIcons.ChatMessage, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("হোয়াটসঅ্যাপ", color = Color.White)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (phone.isNotBlank()) {
+                    ChatProfileInfoItem(label = "মোবাইল নম্বর", value = phone)
+                }
+                if (profile?.department?.banglaName?.isNotBlank() == true) {
+                    ChatProfileInfoItem(label = "ফারেগ বিভাগ", value = profile.department.banglaName)
+                }
+                if (profile?.batchYearHijri?.isNotBlank() == true) {
+                    ChatProfileInfoItem(label = "শিক্ষাবর্ষ (হিজরি)", value = "${profile.batchYearHijri} হিজরি")
+                }
+                if (profile?.currentKhedmat?.isNotBlank() == true) {
+                    ChatProfileInfoItem(label = "বর্তমান খেদমত", value = profile.currentKhedmat)
+                }
+                if (profile?.district?.isNotBlank() == true) {
+                    ChatProfileInfoItem(label = "জেলা / এলাকা", value = profile.district)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatProfileInfoItem(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Medium,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = EmeraldDeep,
+        )
+    }
+}
+

@@ -5,9 +5,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.qawmialumni.app.MainActivity
 import com.qawmialumni.app.R
 import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
@@ -204,6 +206,13 @@ class NotificationHelper @Inject constructor(
     }
 
     fun areNotificationsEnabled(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPerm = ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasPerm) return false
+        }
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
 
@@ -308,7 +317,10 @@ class NotificationHelper @Inject constructor(
         targetId: String,
         priority: Int,
     ) {
-        if (!areNotificationsEnabled()) return
+        if (!areNotificationsEnabled()) {
+            android.util.Log.w("NotificationHelper", "Notifications disabled or POST_NOTIFICATIONS permission not granted.")
+            return
+        }
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -323,7 +335,7 @@ class NotificationHelper @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val smallIcon = R.mipmap.ic_launcher
+        val smallIcon = R.drawable.ic_stat_notification
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(smallIcon)
@@ -331,12 +343,16 @@ class NotificationHelper @Inject constructor(
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(priority)
+            .setColor(0xFF0F766E.toInt())
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
 
         runCatching {
             NotificationManagerCompat.from(context).notify(notificationIdCounter.incrementAndGet(), notification)
+        }.onFailure { e ->
+            android.util.Log.e("NotificationHelper", "Failed to post system notification", e)
         }
     }
 }
