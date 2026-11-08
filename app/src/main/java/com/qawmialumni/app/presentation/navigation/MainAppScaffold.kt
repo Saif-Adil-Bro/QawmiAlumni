@@ -5,6 +5,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -61,9 +62,11 @@ import com.qawmialumni.app.core.notification.NotificationType
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.presentation.album.AlbumDirectoryScreen
 import com.qawmialumni.app.presentation.album.AlbumViewModel
+import com.qawmialumni.app.presentation.album.SelfProfileDialog
 import com.qawmialumni.app.presentation.album.SelfProfileEditDialog
 import com.qawmialumni.app.presentation.chat.ChatListScreen
 import com.qawmialumni.app.presentation.components.AvatarWithRing
+import com.qawmialumni.app.presentation.components.MadrasaDetailDialog
 import com.qawmialumni.app.presentation.components.QawmiIcons
 import com.qawmialumni.app.presentation.forum.ForumFeedScreen
 import com.qawmialumni.app.presentation.madrasaadmin.MadrasaAdminPanel
@@ -97,6 +100,7 @@ fun MainAppScaffold(
     var isChatRoomOpen by remember { mutableStateOf(false) }
     var isForumDetailOpen by remember { mutableStateOf(false) }
     var showSelfProfileDialog by remember { mutableStateOf(false) }
+    var showMadrasaDetailDialog by remember { mutableStateOf(false) }
     var showNotificationCenter by remember { mutableStateOf(false) }
     var targetChatRoomId by remember { mutableStateOf<String?>(null) }
     var targetForumPostId by remember { mutableStateOf<String?>(null) }
@@ -148,9 +152,21 @@ fun MainAppScaffold(
                 Column(modifier = Modifier.fillMaxWidth()) {
                 TopAppBar(
                     title = {
+                        val isMadrasaAdminOrSuper = session?.role == UserRole.MADRASA_ADMIN || session?.role == UserRole.SUPER_ADMIN
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (isMadrasaAdminOrSuper && currentMadrasa != null) {
+                                        Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { showMadrasaDetailDialog = true }
+                                            .padding(vertical = 4.dp, horizontal = 2.dp)
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
                         ) {
                             if (currentMadrasa?.logoUrl?.isNotBlank() == true) {
                                 AvatarWithRing(
@@ -186,15 +202,26 @@ fun MainAppScaffold(
                                 else -> "কওমি নেটওয়ার্ক"
                             }
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = currentMadrasa?.name?.ifBlank { null } ?: "কওমি আলামনাই",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontSize = 15.sp,
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = currentMadrasa?.name?.ifBlank { null } ?: "কওমি আলামনাই",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontSize = 15.sp,
+                                    )
+                                    if (isMadrasaAdminOrSuper && currentMadrasa != null) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = "মাদরাসা প্রোফাইল",
+                                            tint = HeritageGoldLight.copy(alpha = 0.85f),
+                                            modifier = Modifier.size(13.dp),
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = "${currentMadrasa?.code?.let { "[$it] " } ?: ""}${roleLabel} • $tabName",
                                     fontSize = 11.sp,
@@ -236,6 +263,7 @@ fun MainAppScaffold(
                         IconButton(
                             onClick = { showSelfProfileDialog = true },
                             modifier = Modifier
+                                .padding(end = 4.dp)
                                 .size(36.dp)
                                 .clip(CircleShape)
                                 .background(Color.White.copy(alpha = 0.16f)),
@@ -245,22 +273,6 @@ fun MainAppScaffold(
                                 contentDescription = "প্রোফাইল",
                                 modifier = Modifier.size(20.dp),
                                 tint = HeritageGoldLight,
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        IconButton(
-                            onClick = onSignOut,
-                            modifier = Modifier
-                                .padding(end = 6.dp)
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(HeritageGold.copy(alpha = 0.85f)),
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                                contentDescription = "লগআউট",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp),
                             )
                         }
                     },
@@ -431,9 +443,18 @@ fun MainAppScaffold(
     }
 
     if (showSelfProfileDialog) {
-        SelfProfileEditDialog(
+        SelfProfileDialog(
             viewModel = albumViewModel,
             onDismiss = { showSelfProfileDialog = false },
+            onSignOut = onSignOut,
+        )
+    }
+
+    if (showMadrasaDetailDialog && currentMadrasa != null) {
+        MadrasaDetailDialog(
+            madrasa = currentMadrasa!!,
+            viewModel = albumViewModel,
+            onDismiss = { showMadrasaDetailDialog = false },
         )
     }
 

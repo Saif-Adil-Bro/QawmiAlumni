@@ -33,8 +33,11 @@ import java.util.UUID
 import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
 import com.qawmialumni.app.core.notification.NotificationHelper
 import com.qawmialumni.app.data.remote.dto.AuditLogDto
+import com.qawmialumni.app.data.remote.dto.MadrasaUpdateRequestDto
 import com.qawmialumni.app.domain.model.AuditActionType
 import com.qawmialumni.app.domain.model.AuditLog
+import com.qawmialumni.app.domain.model.MadrasaUpdateRequest
+import com.qawmialumni.app.domain.model.VerificationStatus
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,6 +53,7 @@ class AdminRepositoryImpl @Inject constructor(
 ) : AdminRepository {
 
     private val localAuditLogsFallback = mutableMapOf<String, AuditLog>()
+    private val localUpdateRequestsFallback = mutableMapOf<String, MadrasaUpdateRequest>()
 
     override suspend fun createMadrasa(
         name: String,
@@ -717,5 +721,220 @@ class AdminRepositoryImpl @Inject constructor(
             trySend(Resource.Success(merged))
         }
         awaitClose { listener.remove() }
+    }
+
+    override suspend fun submitMadrasaUpdateRequest(
+        request: MadrasaUpdateRequest,
+        newLogoUri: Uri?,
+    ): Resource<MadrasaUpdateRequest> {
+        return try {
+            val reqId = request.requestId.ifBlank { "MREQ_${System.currentTimeMillis()}" }
+            var logoUrl = request.requestedLogoUrl
+            if (newLogoUri != null) {
+                when (val uploadRes = imageUploadRepository.uploadImage(newLogoUri, ImageTarget.THUMBNAIL)) {
+                    is Resource.Success -> logoUrl = uploadRes.data
+                    is Resource.Error -> return Resource.Error("লোগো আপলোড ব্যর্থ: ${uploadRes.message}")
+                    Resource.Loading -> Unit
+                }
+            }
+
+            val finalRequest = request.copy(
+                requestId = reqId,
+                requestedLogoUrl = logoUrl,
+                status = VerificationStatus.PENDING,
+                createdAt = System.currentTimeMillis(),
+            )
+
+            localUpdateRequestsFallback[reqId] = finalRequest
+
+            runCatching {
+                firestore.collection("madrasa_update_requests").document(reqId)
+                    .set(MadrasaUpdateRequestDto.fromDomain(finalRequest))
+                    .await()
+            }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = finalRequest.madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "মাদরাসা অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.MADRASA_UPDATE_REQUESTED,
+                        targetTitle = finalRequest.requestedName.ifBlank { finalRequest.currentName },
+                        details = "মাদরাসার তথ্য পরিবর্তনের আবেদন পাঠানো হয়েছে (কোড: ${finalRequest.madrasaCode})",
+                    )
+                )
+            }
+
+            notificationHelper.showNoticeNotification(
+                title = "মাদরাসার তথ্য পরিবর্তনের আবেদন সফলভাবে সুপার অ্যাডমিনের কাছে পাঠানো হয়েছে।",
+                madrasaName = "তথ্য সংশোধন",
+                noticeId = reqId,
+            )
+
+            Resource.Success(finalRequest)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "আবেদন পাঠানো যায়নি", e)
+        }
+    }
+
+    override fun getPendingMadrasaUpdateRequests(madrasaId: String): Flow<Resource<List<MadrasaUpdateRequest>>> = callbackFlow {
+        trySend(Resource.Loading)
+        val query = if (madrasaId.isNotBlank()) {
+            firestore.collection("madrasa_update_requests")
+                .whereEqualTo("madrasaId", madrasaId)
+        } else {
+            firestore.collection("madrasa_update_requests")
+        }
+
+        val listener = query.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                val fallback = localUpdateRequestsFallback.values
+                    .filter { (madrasaId.isBlank() || it.madrasaId == madrasaId) && it.status == VerificationStatus.PENDING }
+                    .sortedByDescending { it.createdAt }
+                trySend(Resource.Success(fallback))
+                return@addSnapshotListener
+            }
+            val remoteList = snapshot?.documents
+                ?.mapNotNull { it.toObject(MadrasaUpdateRequestDto::class.java)?.toDomain() }
+                .orEmpty()
+            remoteList.forEach { localUpdateRequestsFallback[it.requestId] = it }
+
+            val merged = (remoteList + localUpdateRequestsFallback.values.filter {
+                (madrasaId.isBlank() || it.madrasaId == madrasaId)
+            }).distinctBy { it.requestId }
+                .filter { it.status == VerificationStatus.PENDING }
+                .sortedByDescending { it.createdAt }
+
+            trySend(Resource.Success(merged))
+        }
+        awaitClose { listener.remove() }
+    }
+
+    override suspend fun approveMadrasaUpdateRequest(requestId: String): Resource<Unit> {
+        return try {
+            val reqDoc = firestore.collection("madrasa_update_requests").document(requestId).get().await()
+            val request = reqDoc.toObject(MadrasaUpdateRequestDto::class.java)?.toDomain()
+                ?: localUpdateRequestsFallback[requestId]
+                ?: return Resource.Error("আবেদন খুঁজে পাওয়া যায়নি")
+
+            val targetMadrasaId = request.madrasaId
+            if (targetMadrasaId.isBlank()) return Resource.Error("মাদরাসা আইডি অবৈধ")
+
+            // 1. Update the live Madrasa doc in Firestore
+            val updates = mutableMapOf<String, Any>()
+            if (request.requestedName.isNotBlank()) updates["name"] = request.requestedName.trim()
+            if (request.requestedLogoUrl.isNotBlank()) updates["logoUrl"] = request.requestedLogoUrl.trim()
+            if (request.requestedAddress.isNotBlank()) updates["address"] = request.requestedAddress.trim()
+            if (request.requestedEstablishedYear.isNotBlank()) updates["establishedYear"] = request.requestedEstablishedYear.trim()
+
+            if (updates.isNotEmpty()) {
+                firestore.collection("madrasas").document(targetMadrasaId)
+                    .update(updates)
+                    .await()
+            }
+
+            // 2. If new admin email was provided, assign it
+            if (request.requestedAdminEmail.isNotBlank()) {
+                assignMultipleMadrasaAdminEmails(targetMadrasaId, listOf(request.requestedAdminEmail))
+            }
+
+            // 3. Update request status to APPROVED
+            val updatedReq = request.copy(
+                status = VerificationStatus.APPROVED,
+                reviewedAt = System.currentTimeMillis(),
+            )
+            localUpdateRequestsFallback[requestId] = updatedReq
+
+            runCatching {
+                firestore.collection("madrasa_update_requests").document(requestId)
+                    .update(
+                        mapOf(
+                            "status" to VerificationStatus.APPROVED.wireValue,
+                            "reviewedAt" to System.currentTimeMillis(),
+                        )
+                    ).await()
+            }
+
+            // 4. Record audit log
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = targetMadrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "সুপার অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.MADRASA_UPDATE_APPROVED,
+                        targetTitle = request.requestedName.ifBlank { request.currentName },
+                        details = "সুপার অ্যাডমিন কর্তৃক মাদরাসার তথ্য পরিবর্তনের আবেদন অনুমোদিত হয়েছে",
+                    )
+                )
+            }
+
+            notificationHelper.showNoticeNotification(
+                title = "মাদরাসা [${request.requestedName.ifBlank { request.currentName }}]-এর তথ্য পরিবর্তনের আবেদন অনুমোদিত হয়েছে।",
+                madrasaName = "অনুমোদিত",
+                noticeId = targetMadrasaId,
+            )
+
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "অনুমোদন ব্যর্থ হয়েছে", e)
+        }
+    }
+
+    override suspend fun rejectMadrasaUpdateRequest(requestId: String, note: String): Resource<Unit> {
+        return try {
+            val reqDoc = firestore.collection("madrasa_update_requests").document(requestId).get().await()
+            val request = reqDoc.toObject(MadrasaUpdateRequestDto::class.java)?.toDomain()
+                ?: localUpdateRequestsFallback[requestId]
+                ?: return Resource.Error("আবেদন খুঁজে পাওয়া যায়নি")
+
+            val updatedReq = request.copy(
+                status = VerificationStatus.REJECTED,
+                reviewNote = note,
+                reviewedAt = System.currentTimeMillis(),
+            )
+            localUpdateRequestsFallback[requestId] = updatedReq
+
+            runCatching {
+                firestore.collection("madrasa_update_requests").document(requestId)
+                    .update(
+                        mapOf(
+                            "status" to VerificationStatus.REJECTED.wireValue,
+                            "reviewNote" to note,
+                            "reviewedAt" to System.currentTimeMillis(),
+                        )
+                    ).await()
+            }
+
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                recordAuditLog(
+                    AuditLog(
+                        madrasaId = request.madrasaId,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "সুপার অ্যাডমিন" },
+                        actorRole = session.role,
+                        actionType = AuditActionType.MADRASA_UPDATE_REJECTED,
+                        targetTitle = request.currentName,
+                        details = "মাদরাসার তথ্য পরিবর্তনের আবেদন বাতিল করা হয়েছে${if (note.isNotBlank()) " (কারণ: $note)" else ""}",
+                    )
+                )
+            }
+
+            notificationHelper.showNoticeNotification(
+                title = "মাদরাসার তথ্য পরিবর্তনের আবেদন বাতিল করা হয়েছে।",
+                madrasaName = "তথ্য সংশোধন",
+                noticeId = request.madrasaId,
+            )
+
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "আবেদন বাতিল ব্যর্থ হয়েছে", e)
+        }
     }
 }

@@ -80,4 +80,16 @@ interface AdminRepository {
     suspend fun recordAuditLog(log: com.qawmialumni.app.domain.model.AuditLog): Resource<Unit>
 
     fun getAuditLogs(madrasaId: String = ""): Flow<Resource<List<com.qawmialumni.app.domain.model.AuditLog>>>
+
+    // Madrasa Profile Update Requests (submitted by Madrasa Admin, approved by Super Admin)
+    suspend fun submitMadrasaUpdateRequest(
+        request: com.qawmialumni.app.domain.model.MadrasaUpdateRequest,
+        newLogoUri: Uri?,
+    ): Resource<com.qawmialumni.app.domain.model.MadrasaUpdateRequest>
+
+    fun getPendingMadrasaUpdateRequests(madrasaId: String = ""): Flow<Resource<List<com.qawmialumni.app.domain.model.MadrasaUpdateRequest>>>
+
+    suspend fun approveMadrasaUpdateRequest(requestId: String): Resource<Unit>
+
+    suspend fun rejectMadrasaUpdateRequest(requestId: String, note: String = ""): Resource<Unit>
 }

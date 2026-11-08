@@ -8,6 +8,7 @@ import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
 import com.qawmialumni.app.domain.model.Madrasa
+import com.qawmialumni.app.domain.model.MadrasaUpdateRequest
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.VerificationStatus
 import com.qawmialumni.app.domain.repository.AdminRepository
@@ -37,6 +38,13 @@ class SuperAdminViewModel @Inject constructor(
 ) : ViewModel() {
 
     val madrasasList: StateFlow<Resource<List<Madrasa>>> = adminRepository.getAllMadrasas()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = Resource.Loading,
+        )
+
+    val pendingMadrasaUpdateRequests: StateFlow<Resource<List<MadrasaUpdateRequest>>> = adminRepository.getPendingMadrasaUpdateRequests()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -242,5 +250,25 @@ class SuperAdminViewModel @Inject constructor(
 
     fun resetAssignAdminState() {
         _assignAdminState.value = null
+    }
+
+    fun approveMadrasaUpdateRequest(requestId: String) {
+        viewModelScope.launch {
+            when (val res = adminRepository.approveMadrasaUpdateRequest(requestId)) {
+                is Resource.Success -> _globalActionMessage.value = "মাদরাসার তথ্য পরিবর্তনের আবেদন অনুমোদিত হয়েছে"
+                is Resource.Error -> _globalActionMessage.value = res.message
+                Resource.Loading -> Unit
+            }
+        }
+    }
+
+    fun rejectMadrasaUpdateRequest(requestId: String, note: String = "") {
+        viewModelScope.launch {
+            when (val res = adminRepository.rejectMadrasaUpdateRequest(requestId, note)) {
+                is Resource.Success -> _globalActionMessage.value = "মাদরাসার তথ্য পরিবর্তনের আবেদন বাতিল করা হয়েছে"
+                is Resource.Error -> _globalActionMessage.value = res.message
+                Resource.Loading -> Unit
+            }
+        }
     }
 }

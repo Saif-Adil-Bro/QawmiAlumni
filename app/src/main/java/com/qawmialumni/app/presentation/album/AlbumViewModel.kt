@@ -9,6 +9,7 @@ import com.qawmialumni.app.domain.model.ChatRoom
 import com.qawmialumni.app.domain.model.GraduationDepartment
 import com.qawmialumni.app.domain.model.KhedmatCategory
 import com.qawmialumni.app.domain.model.Madrasa
+import com.qawmialumni.app.domain.model.MadrasaUpdateRequest
 import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.UserStatus
@@ -311,5 +312,59 @@ class AlbumViewModel @Inject constructor(
 
     fun resetSelfProfileState() {
         _selfProfileState.value = null
+    }
+
+    val pendingMadrasaUpdateRequest: StateFlow<MadrasaUpdateRequest?> = dataStore.userSession
+        .flatMapLatest { userSession ->
+            if (userSession.madrasaId.isBlank()) {
+                flowOf(null)
+            } else {
+                adminRepository.getPendingMadrasaUpdateRequests(userSession.madrasaId).map { res ->
+                    (res as? Resource.Success)?.data?.firstOrNull()
+                }
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null,
+        )
+
+    private val _madrasaUpdateRequestState = MutableStateFlow<Resource<MadrasaUpdateRequest>?>(null)
+    val madrasaUpdateRequestState: StateFlow<Resource<MadrasaUpdateRequest>?> = _madrasaUpdateRequestState.asStateFlow()
+
+    fun submitMadrasaUpdateRequest(
+        name: String,
+        address: String,
+        establishedYear: String,
+        contactEmail: String,
+        newLogoUri: Uri?,
+    ) {
+        val current = currentMadrasa.value ?: return
+        val currentSession = session.value ?: return
+        viewModelScope.launch {
+            _madrasaUpdateRequestState.value = Resource.Loading
+            val request = MadrasaUpdateRequest(
+                madrasaId = current.madrasaId,
+                madrasaCode = current.code,
+                currentName = current.name,
+                requestedName = name.trim(),
+                currentLogoUrl = current.logoUrl,
+                requestedLogoUrl = current.logoUrl,
+                currentAddress = current.address,
+                requestedAddress = address.trim(),
+                currentEstablishedYear = current.establishedYear,
+                requestedEstablishedYear = establishedYear.trim(),
+                requestedAdminEmail = contactEmail.trim().lowercase(),
+                requestedByUid = currentSession.uid,
+                requestedByName = currentSession.name,
+            )
+            val res = adminRepository.submitMadrasaUpdateRequest(request, newLogoUri)
+            _madrasaUpdateRequestState.value = res
+        }
+    }
+
+    fun resetMadrasaUpdateRequestState() {
+        _madrasaUpdateRequestState.value = null
     }
 }

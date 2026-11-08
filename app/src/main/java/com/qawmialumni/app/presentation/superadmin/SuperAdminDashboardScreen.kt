@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -92,6 +93,7 @@ import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
 import com.qawmialumni.app.domain.model.Madrasa
+import com.qawmialumni.app.domain.model.MadrasaUpdateRequest
 import com.qawmialumni.app.domain.model.VerificationStatus
 import com.qawmialumni.app.presentation.components.AvatarWithRing
 import com.qawmialumni.app.presentation.components.ModernEmptyState
@@ -110,8 +112,12 @@ fun SuperAdminDashboardScreen(
     onSignOut: () -> Unit,
 ) {
     val madrasasResource by viewModel.madrasasList.collectAsState()
+    val pendingUpdateRequestsRes by viewModel.pendingMadrasaUpdateRequests.collectAsState()
     val globalPostsResource by viewModel.globalForumPosts.collectAsState()
     val auditLogsResource by viewModel.allAuditLogs.collectAsState()
+
+    val pendingUpdateRequests = (pendingUpdateRequestsRes as? Resource.Success)?.data.orEmpty()
+    val pendingUpdateCount = pendingUpdateRequests.size
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -216,10 +222,12 @@ fun SuperAdminDashboardScreen(
                             selectedGlobalPostForDetail = null
                         },
                         text = {
+                            val badgeUpdate = if (pendingUpdateCount > 0) " ($pendingUpdateCount আবেদন)" else ""
                             Text(
-                                text = "🏛️ মাদরাসা ম্যানেজমেন্ট",
+                                text = "🏛️ মাদরাসা ম্যানেজমেন্ট$badgeUpdate",
                                 fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 13.sp,
+                                color = if (pendingUpdateCount > 0 && selectedTab != 0) HeritageGold else EmeraldPrimary,
                             )
                         },
                     )
@@ -312,7 +320,10 @@ fun SuperAdminDashboardScreen(
                     0 -> {
                         MadrasaManagementTabContent(
                             madrasasResource = madrasasResource,
+                            pendingUpdateRequests = pendingUpdateRequests,
                             onAssignAdminClick = { selectedMadrasaForAdminAssign = it },
+                            onApproveUpdateRequest = { viewModel.approveMadrasaUpdateRequest(it) },
+                            onRejectUpdateRequest = { requestId, note -> viewModel.rejectMadrasaUpdateRequest(requestId, note) },
                         )
                     }
                     1 -> {
@@ -426,7 +437,10 @@ fun SuperAdminDashboardScreen(
 @Composable
 private fun MadrasaManagementTabContent(
     madrasasResource: Resource<List<Madrasa>>,
+    pendingUpdateRequests: List<MadrasaUpdateRequest>,
     onAssignAdminClick: (Madrasa) -> Unit,
+    onApproveUpdateRequest: (String) -> Unit,
+    onRejectUpdateRequest: (String, String) -> Unit,
 ) {
     when (madrasasResource) {
         is Resource.Loading -> {
@@ -485,12 +499,174 @@ private fun MadrasaManagementTabContent(
                             )
                         }
                     }
+
+                    // Section for Pending Profile Update Requests
+                    if (pendingUpdateRequests.isNotEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B)),
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                                    Text(
+                                        text = "🔔 মাদরাসা তথ্য পরিবর্তনের আবেদন (${pendingUpdateRequests.size} টি অপেক্ষমাণ)",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = Color(0xFF92400E),
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    pendingUpdateRequests.forEach { req ->
+                                        PendingMadrasaUpdateCard(
+                                            request = req,
+                                            onApprove = { onApproveUpdateRequest(req.requestId) },
+                                            onReject = { onRejectUpdateRequest(req.requestId, "") },
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     items(madrasasResource.data, key = { it.madrasaId }) { madrasa ->
                         MadrasaAdminCard(
                             madrasa = madrasa,
                             onAssignAdminClick = { onAssignAdminClick(madrasa) },
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PendingMadrasaUpdateCard(
+    request: MadrasaUpdateRequest,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, HeritageGold.copy(alpha = 0.5f)),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (request.requestedLogoUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = request.requestedLogoUrl,
+                            contentDescription = "New Logo",
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .border(1.5.dp, HeritageGold, CircleShape),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Column {
+                        Text(
+                            text = request.requestedName.ifBlank { request.currentName },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "কোড: [${request.madrasaCode}] • আবেদনকারী: ${request.requestedByName}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFFEF3C7),
+                ) {
+                    Text(
+                        text = "পেন্ডিং",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFB45309),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (request.requestedName.isNotBlank() && request.requestedName != request.currentName) {
+                Text(
+                    text = "• নাম: ${request.currentName} ➔ ${request.requestedName}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            if (request.requestedAddress.isNotBlank() && request.requestedAddress != request.currentAddress) {
+                Text(
+                    text = "• ঠিকানা: ${request.currentAddress.ifBlank { "ছিল না" }} ➔ ${request.requestedAddress}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            if (request.requestedEstablishedYear.isNotBlank() && request.requestedEstablishedYear != request.currentEstablishedYear) {
+                Text(
+                    text = "• প্রতিষ্ঠার সাল: ${request.currentEstablishedYear.ifBlank { "ছিল না" }} ➔ ${request.requestedEstablishedYear}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            if (request.requestedAdminEmail.isNotBlank()) {
+                Text(
+                    text = "• নতুন অ্যাডমিন ইমেইল: ${request.requestedAdminEmail}",
+                    fontSize = 12.sp,
+                    color = EmeraldPrimary,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(
+                    onClick = onReject,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                ) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "বাতিল", fontSize = 12.sp)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = onApprove,
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                ) {
+                    Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "অনুমোদন করুন (Accept)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
         }

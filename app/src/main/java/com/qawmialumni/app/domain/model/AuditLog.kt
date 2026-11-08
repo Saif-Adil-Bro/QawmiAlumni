@@ -13,6 +13,9 @@ enum class AuditActionType(val banglaLabel: String) {
     FORUM_POST_DELETED("ফোরাম পোস্ট মুছে ফেলা"),
     FORUM_POST_PINNED("ফোরাম পোস্ট পিন/আনপিন"),
     MADRASA_CREATED("নতুন মাদরাসা তৈরি"),
+    MADRASA_UPDATE_REQUESTED("মাদরাসা তথ্য সংশোধনের আবেদন"),
+    MADRASA_UPDATE_APPROVED("মাদরাসা তথ্য সংশোধন অনুমোদন"),
+    MADRASA_UPDATE_REJECTED("মাদরাসা তথ্য সংশোধন বাতিল"),
     USER_REGISTERED("নতুন নিবন্ধন");
 
     companion object {

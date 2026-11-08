@@ -124,6 +124,9 @@ private fun AuditLogItemCard(log: AuditLog) {
         AuditActionType.FORUM_POST_CREATED, AuditActionType.FORUM_POST_APPROVED -> EmeraldTeal
         AuditActionType.FORUM_POST_DELETED -> MaterialTheme.colorScheme.error
         AuditActionType.FORUM_POST_PINNED -> HeritageGold
+        AuditActionType.MADRASA_UPDATE_REQUESTED -> Color(0xFFF59E0B)
+        AuditActionType.MADRASA_UPDATE_APPROVED -> EmeraldPrimary
+        AuditActionType.MADRASA_UPDATE_REJECTED -> MaterialTheme.colorScheme.error
         AuditActionType.USER_REGISTERED -> Color(0xFF1E88E5)
     }
 
