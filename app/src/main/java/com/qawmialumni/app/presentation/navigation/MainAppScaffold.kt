@@ -91,9 +91,11 @@ fun MainAppScaffold(
     var isChatRoomOpen by remember { mutableStateOf(false) }
     var isForumDetailOpen by remember { mutableStateOf(false) }
     var showSelfProfileDialog by remember { mutableStateOf(false) }
-    var showNotificationSettingsDialog by remember { mutableStateOf(false) }
+    var showNotificationCenter by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val session by albumViewModel.session.collectAsState()
+    val notifications by albumViewModel.notificationHelper.notificationsList.collectAsState()
+    val unreadNotifCount = remember(notifications) { notifications.count { !it.isRead } }
 
     val hideScaffoldChrome = (selectedTab == 3 && isChatRoomOpen) || (selectedTab == 1 && isForumDetailOpen)
 
@@ -159,18 +161,29 @@ fun MainAppScaffold(
                     },
                     actions = {
                         IconButton(
-                            onClick = { showNotificationSettingsDialog = true },
+                            onClick = { showNotificationCenter = true },
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
                                 .background(Color.White.copy(alpha = 0.16f)),
                         ) {
-                            Icon(
-                                imageVector = QawmiIcons.NotificationBell,
-                                contentDescription = "নোটিফিকেশন",
-                                modifier = Modifier.size(20.dp),
-                                tint = HeritageGoldLight,
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = QawmiIcons.NotificationBell,
+                                    contentDescription = "নোটিফিকেশন সেন্টার",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = HeritageGoldLight,
+                                )
+                                if (unreadNotifCount > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEF4444))
+                                            .align(Alignment.TopEnd),
+                                    )
+                                }
+                            }
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                         IconButton(
@@ -371,11 +384,11 @@ fun MainAppScaffold(
         )
     }
 
-    if (showNotificationSettingsDialog) {
-        com.qawmialumni.app.presentation.components.NotificationSettingsDialog(
+    if (showNotificationCenter) {
+        com.qawmialumni.app.presentation.components.NotificationCenterDialog(
             dataStore = albumViewModel.dataStore,
             notificationHelper = albumViewModel.notificationHelper,
-            onDismiss = { showNotificationSettingsDialog = false },
+            onDismiss = { showNotificationCenter = false },
         )
     }
 }

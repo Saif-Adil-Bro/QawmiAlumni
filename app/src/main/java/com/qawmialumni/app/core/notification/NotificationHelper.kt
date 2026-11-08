@@ -16,28 +16,39 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Serializable
 enum class NotificationType {
     CHAT,
     NOTICE,
     FORUM,
+    ADMIN,
 }
 
+@Serializable
 data class InAppNotification(
     val id: String = UUID.randomUUID().toString(),
-    val type: NotificationType,
-    val title: String,
-    val message: String,
+    val type: NotificationType = NotificationType.NOTICE,
+    val title: String = "",
+    val message: String = "",
     val targetId: String = "",
     val timestamp: Long = System.currentTimeMillis(),
+    val isRead: Boolean = false,
 )
 
 @Singleton
@@ -47,9 +58,13 @@ class NotificationHelper @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val notificationIdCounter = AtomicInteger(1000)
+    private val jsonSerializer = Json { ignoreUnknownKeys = true; prettyPrint = false }
 
     private val _inAppNotifications = MutableSharedFlow<InAppNotification>(extraBufferCapacity = 64)
     val inAppNotifications: SharedFlow<InAppNotification> = _inAppNotifications.asSharedFlow()
+
+    private val _notificationsList = MutableStateFlow<List<InAppNotification>>(emptyList())
+    val notificationsList: StateFlow<List<InAppNotification>> = _notificationsList.asStateFlow()
 
     companion object {
         const val CHANNEL_CHAT = "channel_qawmi_chat"
@@ -62,6 +77,88 @@ class NotificationHelper @Inject constructor(
 
     init {
         createNotificationChannels()
+        loadPersistedNotifications()
+    }
+
+    private fun loadPersistedNotifications() {
+        scope.launch {
+            val jsonStr = preferences.rawNotificationsJson.first()
+            if (jsonStr.isNotBlank()) {
+                val parsed = runCatching {
+                    jsonSerializer.decodeFromString<List<InAppNotification>>(jsonStr)
+                }.getOrDefault(emptyList())
+                if (parsed.isNotEmpty()) {
+                    _notificationsList.value = parsed
+                    return@launch
+                }
+            }
+
+            // Initial seed if empty
+            val initial = listOf(
+                InAppNotification(
+                    id = "init_notice_1",
+                    type = NotificationType.NOTICE,
+                    title = "স্বাগতম কওমি আলামনাই প্ল্যাটফর্মে",
+                    message = "কওমি মাদরাসা ফারেগীন ও আসাতিযায়ে কেরামের ডিজিটাল ঐক্য প্ল্যাটফর্মে আপনাকে স্বাগতম।",
+                    timestamp = System.currentTimeMillis() - 3600000,
+                    isRead = false,
+                ),
+                InAppNotification(
+                    id = "init_forum_1",
+                    type = NotificationType.FORUM,
+                    title = "ইলমি মুযাকারা ও ফোরাম চালু হয়েছে",
+                    message = "মাদরাসা ও গ্লোবাল ফোরামে দ্বীনি আলোচনা ও ফতোয়া শেয়ার করতে পারেন।",
+                    timestamp = System.currentTimeMillis() - 7200000,
+                    isRead = false,
+                )
+            )
+            _notificationsList.value = initial
+            persistNotifications(initial)
+        }
+    }
+
+    private fun recordNotification(notification: InAppNotification) {
+        _notificationsList.update { current ->
+            val updated = listOf(notification) + current.filter { it.id != notification.id }.take(49)
+            persistNotifications(updated)
+            updated
+        }
+    }
+
+    private fun persistNotifications(list: List<InAppNotification>) {
+        scope.launch {
+            val jsonStr = runCatching { jsonSerializer.encodeToString(list.take(50)) }.getOrDefault("")
+            preferences.saveNotificationsJson(jsonStr)
+        }
+    }
+
+    fun markAsRead(id: String) {
+        _notificationsList.update { list ->
+            val updated = list.map { if (it.id == id) it.copy(isRead = true) else it }
+            persistNotifications(updated)
+            updated
+        }
+    }
+
+    fun markAllAsRead() {
+        _notificationsList.update { list ->
+            val updated = list.map { it.copy(isRead = true) }
+            persistNotifications(updated)
+            updated
+        }
+    }
+
+    fun deleteNotification(id: String) {
+        _notificationsList.update { list ->
+            val updated = list.filter { it.id != id }
+            persistNotifications(updated)
+            updated
+        }
+    }
+
+    fun clearAll() {
+        _notificationsList.value = emptyList()
+        persistNotifications(emptyList())
     }
 
     private fun createNotificationChannels() {
@@ -119,6 +216,7 @@ class NotificationHelper @Inject constructor(
                 message = messageText,
                 targetId = roomId,
             )
+            recordNotification(event)
             _inAppNotifications.emit(event)
 
             if (!settings.chatNotificationsEnabled) return@launch
@@ -142,6 +240,7 @@ class NotificationHelper @Inject constructor(
                 message = title,
                 targetId = noticeId,
             )
+            recordNotification(event)
             _inAppNotifications.emit(event)
 
             if (!settings.noticeNotificationsEnabled) return@launch
@@ -165,6 +264,7 @@ class NotificationHelper @Inject constructor(
                 message = title,
                 targetId = postId,
             )
+            recordNotification(event)
             _inAppNotifications.emit(event)
 
             if (!settings.forumNotificationsEnabled) return@launch
@@ -186,6 +286,7 @@ class NotificationHelper @Inject constructor(
                 title = "নোটিফিকেশন টেস্ট সফল",
                 message = "কওমি আলামনাই অ্যাপের নোটিফিকেশন সিস্টেম সঠিকভাবে সক্রিয় আছে।",
             )
+            recordNotification(notif)
             _inAppNotifications.emit(notif)
 
             sendSystemNotification(

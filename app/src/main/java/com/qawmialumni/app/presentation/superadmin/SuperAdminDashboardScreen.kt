@@ -119,7 +119,9 @@ fun SuperAdminDashboardScreen(
     var selectedMadrasaForAdminAssign by remember { mutableStateOf<Madrasa?>(null) }
     var selectedGlobalPostForEdit by remember { mutableStateOf<ForumPost?>(null) }
     var selectedGlobalPostForDetail by remember { mutableStateOf<ForumPost?>(null) }
-    var showNotificationSettingsDialog by remember { mutableStateOf(false) }
+    var showNotificationCenter by remember { mutableStateOf(false) }
+    val notifications by viewModel.notificationHelper.notificationsList.collectAsState()
+    val unreadNotifCount = remember(notifications) { notifications.count { !it.isRead } }
 
     val pendingGlobalCount = (globalPostsResource as? Resource.Success)?.data
         ?.count { it.approvalStatus == VerificationStatus.PENDING } ?: 0
@@ -153,18 +155,29 @@ fun SuperAdminDashboardScreen(
                     },
                     actions = {
                         IconButton(
-                            onClick = { showNotificationSettingsDialog = true },
+                            onClick = { showNotificationCenter = true },
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
                                 .background(Color.White.copy(alpha = 0.16f)),
                         ) {
-                            Icon(
-                                imageVector = QawmiIcons.NotificationBell,
-                                contentDescription = "নোটিফিকেশন",
-                                tint = HeritageGoldLight,
-                                modifier = Modifier.size(20.dp),
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = QawmiIcons.NotificationBell,
+                                    contentDescription = "নোটিফিকেশন সেন্টার",
+                                    tint = HeritageGoldLight,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                if (unreadNotifCount > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEF4444))
+                                            .align(Alignment.TopEnd),
+                                    )
+                                }
+                            }
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                         IconButton(
@@ -401,11 +414,11 @@ fun SuperAdminDashboardScreen(
         )
     }
 
-    if (showNotificationSettingsDialog) {
-        com.qawmialumni.app.presentation.components.NotificationSettingsDialog(
+    if (showNotificationCenter) {
+        com.qawmialumni.app.presentation.components.NotificationCenterDialog(
             dataStore = viewModel.dataStore,
             notificationHelper = viewModel.notificationHelper,
-            onDismiss = { showNotificationSettingsDialog = false },
+            onDismiss = { showNotificationCenter = false },
         )
     }
 }

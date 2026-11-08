@@ -59,6 +59,7 @@ class UserPreferencesDataStore @Inject constructor(
         val NOTIF_CHAT = androidx.datastore.preferences.core.booleanPreferencesKey("notif_chat_enabled")
         val NOTIF_NOTICE = androidx.datastore.preferences.core.booleanPreferencesKey("notif_notice_enabled")
         val NOTIF_FORUM = androidx.datastore.preferences.core.booleanPreferencesKey("notif_forum_enabled")
+        val NOTIFICATIONS_JSON = stringPreferencesKey("notifications_json")
     }
 
     val userSession: Flow<CachedUserSession> = context.dataStore.data
@@ -117,6 +118,20 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.NOTIF_CHAT] = chatEnabled
             prefs[Keys.NOTIF_NOTICE] = noticeEnabled
             prefs[Keys.NOTIF_FORUM] = forumEnabled
+        }
+    }
+
+    val rawNotificationsJson: Flow<String> = context.dataStore.data
+        .catch { exception ->
+            if (exception is IOException) emit(emptyPreferences()) else throw exception
+        }
+        .map { prefs ->
+            prefs[Keys.NOTIFICATIONS_JSON].orEmpty()
+        }
+
+    suspend fun saveNotificationsJson(json: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.NOTIFICATIONS_JSON] = json
         }
     }
 
