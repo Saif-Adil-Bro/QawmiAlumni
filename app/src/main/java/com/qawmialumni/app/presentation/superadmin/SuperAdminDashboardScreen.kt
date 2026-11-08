@@ -25,13 +25,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -51,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -62,8 +69,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.Madrasa
+import com.qawmialumni.app.presentation.components.AvatarWithRing
+import com.qawmialumni.app.presentation.components.ModernEmptyState
+import com.qawmialumni.app.presentation.components.QawmiIcons
+import com.qawmialumni.app.presentation.components.StatSummaryCard
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
+import com.qawmialumni.app.presentation.theme.EmeraldTeal
 import com.qawmialumni.app.presentation.theme.HeritageGold
+import com.qawmialumni.app.presentation.theme.HeritageGoldLight
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,37 +90,69 @@ fun SuperAdminDashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("সুপার অ্যাডমিন ড্যাশবোর্ড", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("মাদরাসা ও প্ল্যাটফর্ম ম্যানেজমেন্ট", fontSize = 12.sp, color = HeritageGold)
-                    }
-                },
-                actions = {
-                    Button(
-                        onClick = onSignOut,
-                        colors = ButtonDefaults.buttonColors(containerColor = HeritageGold),
-                        shape = RoundedCornerShape(8.dp),
-                    ) {
-                        Text("লগআউট", fontSize = 12.sp)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = EmeraldPrimary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = QawmiIcons.AdminShield,
+                                    contentDescription = null,
+                                    tint = HeritageGoldLight,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("সুপার অ্যাডমিন ড্যাশবোর্ড", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Text("মাদরাসা ও প্ল্যাটফর্ম ম্যানেজমেন্ট", fontSize = 11.sp, color = HeritageGoldLight)
+                            }
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = onSignOut,
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(HeritageGold),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                contentDescription = "লগআউট",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = EmeraldPrimary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                )
+                HorizontalDivider(thickness = 1.5.dp, color = HeritageGold.copy(alpha = 0.45f))
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = { showCreateDialog = true },
                 containerColor = HeritageGold,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = CircleShape,
-            ) {
-                Text("+", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            }
+                contentColor = Color.White,
+                shape = RoundedCornerShape(50),
+                icon = {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add Madrasa")
+                },
+                text = {
+                    Text("নতুন মাদরাসা যুক্ত করুন", fontWeight = FontWeight.Bold)
+                },
+            )
         },
     ) { innerPadding ->
         Surface(
@@ -129,36 +174,49 @@ fun SuperAdminDashboardScreen(
                 }
                 is Resource.Success -> {
                     if (res.data.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("এখনও কোনো মাদরাসা যুক্ত করা হয়নি।")
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    "নিচের '+' বাটনে ট্যাপ করে নতুন মাদরাসা নিবন্ধন করুন।",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 14.sp,
-                                )
-                            }
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            ModernEmptyState(
+                                icon = QawmiIcons.AdminShield,
+                                title = "এখনও কোনো মাদরাসা নিবন্ধন করা হয়নি",
+                                subtitle = "নিচের 'নতুন মাদরাসা যুক্ত করুন' বাটনে চাপ দিয়ে প্রথম মাদরাসা ও তার অ্যাডমিন ইমেইল যুক্ত করুন।",
+                            )
                         }
                     } else {
+                        val totalMadrasas = res.data.size
+                        val totalAdminsAssigned = res.data.count {
+                            it.adminUids.isNotEmpty() || it.pendingAdminEmails.isNotEmpty()
+                        }
+                        val totalAlumni = res.data.sumOf { it.totalAlumniCount }
+
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 88.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             item {
-                                Text(
-                                    text = "মোট নিবন্ধিত মাদরাসা: ${res.data.size}টি",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = EmeraldPrimary,
-                                    modifier = Modifier.padding(bottom = 4.dp),
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    StatSummaryCard(
+                                        title = "নিবন্ধিত মাদরাসা",
+                                        value = "$totalMadrasas টি",
+                                        accentColor = EmeraldPrimary,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    StatSummaryCard(
+                                        title = "অ্যাডমিনযুক্ত",
+                                        value = "$totalAdminsAssigned টি",
+                                        accentColor = HeritageGold,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    StatSummaryCard(
+                                        title = "মোট ফারেগীন",
+                                        value = "$totalAlumni জন",
+                                        accentColor = EmeraldTeal,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                             }
                             items(res.data, key = { it.madrasaId }) { madrasa ->
                                 MadrasaAdminCard(
@@ -196,9 +254,13 @@ fun MadrasaAdminCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+        ),
     ) {
         Column(
             modifier = Modifier
@@ -209,29 +271,12 @@ fun MadrasaAdminCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(CircleShape)
-                        .background(EmeraldPrimary.copy(alpha = 0.1f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (madrasa.logoUrl.isNotBlank()) {
-                        AsyncImage(
-                            model = madrasa.logoUrl,
-                            contentDescription = madrasa.name,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                        )
-                    } else {
-                        Text(
-                            text = madrasa.name.take(1),
-                            fontWeight = FontWeight.Bold,
-                            color = EmeraldPrimary,
-                            fontSize = 20.sp,
-                        )
-                    }
-                }
+                AvatarWithRing(
+                    photoUrl = madrasa.logoUrl,
+                    name = madrasa.name,
+                    size = 54.dp,
+                    ringColor = HeritageGold,
+                )
 
                 Spacer(modifier = Modifier.width(14.dp))
 
@@ -249,25 +294,25 @@ fun MadrasaAdminCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(HeritageGold.copy(alpha = 0.15f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = HeritageGold.copy(alpha = 0.16f),
                         ) {
                             Text(
                                 text = "কোড: ${madrasa.code}",
                                 fontWeight = FontWeight.Bold,
                                 color = HeritageGold,
                                 fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "আলামনাই: ${madrasa.totalAlumniCount} জন",
+                            text = "ফারেগীন: ${madrasa.totalAlumniCount} জন",
                             fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -275,6 +320,8 @@ fun MadrasaAdminCard(
             }
 
             Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -285,7 +332,7 @@ fun MadrasaAdminCard(
                     madrasa.pendingAdminEmails.isNotEmpty() ->
                         "অ্যাডমিন ইমেইল: ${madrasa.pendingAdminEmails.joinToString(", ")}"
                     madrasa.adminUids.isNotEmpty() ->
-                        "অ্যাডমিন যুক্ত: ${madrasa.adminUids.size} জন"
+                        "সক্রিয় অ্যাডমিন: ${madrasa.adminUids.size} জন"
                     else -> "অ্যাডমিন এখনও নির্ধারণ করা হয়নি"
                 }
                 Text(
@@ -297,10 +344,10 @@ fun MadrasaAdminCard(
 
                 OutlinedButton(
                     onClick = onAssignAdminClick,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 ) {
-                    Text("🔑 অ্যাডমিন নিয়োগ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EmeraldPrimary)
+                    Text("অ্যাডমিন নিয়োগ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EmeraldPrimary)
                 }
             }
         }

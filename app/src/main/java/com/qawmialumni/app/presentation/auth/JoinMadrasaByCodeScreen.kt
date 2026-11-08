@@ -47,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -56,8 +57,10 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.qawmialumni.app.domain.model.GraduationDepartment
 import com.qawmialumni.app.domain.model.KhedmatCategory
+import com.qawmialumni.app.presentation.components.IslamicGeometricBanner
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
 import com.qawmialumni.app.presentation.theme.HeritageGold
+import com.qawmialumni.app.presentation.theme.HeritageGoldLight
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,28 +113,58 @@ fun JoinMadrasaByCodeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            IslamicGeometricBanner(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 32.dp, bottom = 28.dp, start = 20.dp, end = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Surface(
+                        color = HeritageGold.copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(50),
+                    ) {
+                        Text(
+                            text = "ধাপ ২ / ২ • মাদরাসা ও সনদ তথ্য",
+                            color = HeritageGoldLight,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "মাদরাসা নির্বাচন ও ফারেগীন নিবন্ধন",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "আপনার মাদরাসার কোড দিয়ে যুক্ত হোন এবং দস্তারবন্দী/ফারেগীন তথ্য পূরণ করুন",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.88f),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
 
-            Text(
-                text = "মাদরাসা নির্বাচন ও ফারেগীন নিবন্ধন",
-                style = MaterialTheme.typography.headlineMedium,
-                color = EmeraldPrimary,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                text = "আপনার মাদরাসার কোড দিয়ে যুক্ত হোন এবং দস্তারবন্দী/ফারেগীন তথ্য পূরণ করুন",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Step A: Madrasa Code Verification Card
+                // Step A: Madrasa Code Verification Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
@@ -513,7 +546,8 @@ fun JoinMadrasaByCodeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(32.dp))
+            }
         }
     }
 }

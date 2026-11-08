@@ -28,6 +28,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -37,9 +46,12 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -71,6 +83,9 @@ import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
 import com.qawmialumni.app.domain.model.UserRole
+import com.qawmialumni.app.presentation.components.AvatarWithRing
+import com.qawmialumni.app.presentation.components.ModernEmptyState
+import com.qawmialumni.app.presentation.components.QawmiIcons
 import com.qawmialumni.app.presentation.components.VerifiedBadge
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
 import com.qawmialumni.app.presentation.theme.HeritageGold
@@ -85,6 +100,7 @@ fun ForumFeedScreen(
 
     var showCreatePostDialog by remember { mutableStateOf(false) }
     var selectedPostForComments by remember { mutableStateOf<ForumPost?>(null) }
+    var fullScreenImageUrl by remember { mutableStateOf<String?>(null) }
 
     val currentUid = session?.uid.orEmpty()
     val isModerator = session?.role == UserRole.MADRASA_ADMIN ||
@@ -93,35 +109,42 @@ fun ForumFeedScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Category Filter Chips
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // Elevated Category Filter Bar
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
             ) {
-                FilterChip(
-                    selected = selectedCategory == null,
-                    onClick = { viewModel.selectCategory(null) },
-                    label = { Text("সব পোস্ট") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = EmeraldPrimary,
-                        selectedLabelColor = Color.White,
-                    ),
-                )
-                ForumCategory.entries.forEach { cat ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     FilterChip(
-                        selected = selectedCategory == cat,
-                        onClick = { viewModel.selectCategory(cat) },
-                        label = { Text(cat.banglaName) },
+                        selected = selectedCategory == null,
+                        onClick = { viewModel.selectCategory(null) },
+                        label = { Text("সব আলোচনা", fontWeight = FontWeight.SemiBold) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = EmeraldPrimary,
                             selectedLabelColor = Color.White,
                         ),
                     )
+                    ForumCategory.entries.forEach { cat ->
+                        FilterChip(
+                            selected = selectedCategory == cat,
+                            onClick = { viewModel.selectCategory(cat) },
+                            label = { Text(cat.banglaName, fontWeight = FontWeight.SemiBold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = EmeraldPrimary,
+                                selectedLabelColor = Color.White,
+                            ),
+                        )
+                    }
                 }
             }
+
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
 
             // Posts List
             when (val res = postsResource) {
@@ -138,12 +161,27 @@ fun ForumFeedScreen(
                 is Resource.Success -> {
                     if (res.data.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("এখনও কোনো ফোরাম পোস্ট নেই। নিচে '+' চাপ দিয়ে নতুন আলোচনা শুরু করুন।")
+                            ModernEmptyState(
+                                icon = QawmiIcons.ForumBubble,
+                                title = "এখনও কোনো ফোরাম পোস্ট নেই",
+                                subtitle = "ইলমি মুযাকারা, কিতাব পর্যালোচনা বা খেদমতের বিজ্ঞপ্তি দিতে নিচের বাটনে চাপুন।",
+                                action = {
+                                    Button(
+                                        onClick = { showCreatePostDialog = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                                        shape = RoundedCornerShape(12.dp),
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("প্রথম আলোচনা শুরু করুন", fontWeight = FontWeight.Bold)
+                                    }
+                                },
+                            )
                         }
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 80.dp),
+                            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 88.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
                             items(res.data, key = { it.postId }) { post ->
@@ -159,6 +197,7 @@ fun ForumFeedScreen(
                                     onCommentClick = { selectedPostForComments = post },
                                     onPinClick = { viewModel.togglePinPost(post) },
                                     onDeleteClick = { viewModel.deletePost(post.postId) },
+                                    onImageClick = { fullScreenImageUrl = post.imageUrl },
                                 )
                             }
                         }
@@ -167,17 +206,21 @@ fun ForumFeedScreen(
             }
         }
 
-        FloatingActionButton(
+        ExtendedFloatingActionButton(
             onClick = { showCreatePostDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
             containerColor = EmeraldPrimary,
             contentColor = Color.White,
-            shape = CircleShape,
-        ) {
-            Text("+", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        }
+            shape = RoundedCornerShape(50),
+            icon = {
+                Icon(imageVector = Icons.Default.Add, contentDescription = "New Post")
+            },
+            text = {
+                Text("নতুন পোস্ট", fontWeight = FontWeight.Bold)
+            },
+        )
     }
 
     if (showCreatePostDialog) {
@@ -194,6 +237,41 @@ fun ForumFeedScreen(
             onDismiss = { selectedPostForComments = null },
         )
     }
+
+    fullScreenImageUrl?.let { imgUrl ->
+        Dialog(onDismissRequest = { fullScreenImageUrl = null }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black),
+            ) {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    AsyncImage(
+                        model = imgUrl,
+                        contentDescription = "Full Post Image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(420.dp),
+                        contentScale = ContentScale.Fit,
+                    )
+                    IconButton(
+                        onClick = { fullScreenImageUrl = null },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f)),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -206,6 +284,7 @@ fun ForumPostCard(
     onCommentClick: () -> Unit,
     onPinClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    onImageClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -214,52 +293,55 @@ fun ForumPostCard(
             .fillMaxWidth()
             .then(
                 if (post.isPinned) {
-                    Modifier.border(1.5.dp, HeritageGold, RoundedCornerShape(16.dp))
+                    Modifier.border(1.5.dp, HeritageGold, RoundedCornerShape(18.dp))
                 } else {
-                    Modifier
+                    Modifier.border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                        RoundedCornerShape(18.dp),
+                    )
                 }
             ),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             if (post.isPinned) {
                 Surface(
-                    color = HeritageGold.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.padding(bottom = 8.dp),
+                    color = HeritageGold.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.padding(bottom = 10.dp),
                 ) {
-                    Text(
-                        text = "📌 পিন করা গুরুত্বপূর্ণ পোস্ট",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = HeritageGold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = null,
+                            tint = HeritageGold,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "পিন করা গুরুত্বপূর্ণ আলোচনা",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = HeritageGold,
+                        )
+                    }
                 }
             }
 
             // Author info row
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(EmeraldPrimary.copy(alpha = 0.1f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (post.authorPhoto.isNotBlank()) {
-                        AsyncImage(
-                            model = post.authorPhoto,
-                            contentDescription = post.authorName,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                        )
-                    } else {
-                        Text(post.authorName.take(1), fontWeight = FontWeight.Bold, color = EmeraldPrimary)
-                    }
-                }
+                AvatarWithRing(
+                    photoUrl = post.authorPhoto,
+                    name = post.authorName,
+                    size = 44.dp,
+                    ringColor = HeritageGold,
+                )
 
                 Spacer(modifier = Modifier.width(10.dp))
 
@@ -269,16 +351,24 @@ fun ForumPostCard(
                             text = post.authorName,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         VerifiedBadge()
                     }
-                    Text(
-                        text = post.category.banglaName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = HeritageGold,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        color = EmeraldPrimary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(6.dp),
+                    ) {
+                        Text(
+                            text = post.category.banglaName,
+                            fontSize = 11.sp,
+                            color = EmeraldPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                        )
+                    }
                 }
             }
 
@@ -298,6 +388,7 @@ fun ForumPostCard(
                 text = post.content,
                 style = MaterialTheme.typography.bodyMedium,
                 lineHeight = 22.sp,
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             // Contact Phone button for Khedmat Vacancy / Urgent posts
@@ -310,8 +401,15 @@ fun ForumPostCard(
                     },
                     shape = RoundedCornerShape(10.dp),
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Phone,
+                        contentDescription = null,
+                        tint = EmeraldPrimary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "📞 যোগাযোগ: ${post.contactPhone}",
+                        text = "যোগাযোগ: ${post.contactPhone}",
                         color = EmeraldPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
@@ -320,19 +418,27 @@ fun ForumPostCard(
             }
 
             if (post.imageUrl.isNotBlank()) {
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 AsyncImage(
                     model = post.imageUrl,
                     contentDescription = "Post Image",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp)
-                        .clip(RoundedCornerShape(12.dp)),
+                        .height(210.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                            RoundedCornerShape(14.dp),
+                        )
+                        .clickable { onImageClick() },
                     contentScale = ContentScale.Crop,
                 )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Actions row (Like, Comment, Pin, Delete)
             Row(
@@ -340,35 +446,64 @@ fun ForumPostCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(onClick = onLikeClick) {
+                        Icon(
+                            imageVector = if (isLikedByMe) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Like",
+                            tint = if (isLikedByMe) Color(0xFFDC2626) else EmeraldPrimary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            text = if (isLikedByMe) "❤️ ${post.likesCount} পছন্দ" else "🤍 ${post.likesCount} পছন্দ",
+                            text = "${post.likesCount} পছন্দ",
                             color = if (isLikedByMe) Color(0xFFDC2626) else EmeraldPrimary,
                             fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
                         )
                     }
                     TextButton(onClick = onCommentClick) {
-                        Text("💬 ${post.commentsCount} মন্তব্য", color = HeritageGold, fontWeight = FontWeight.SemiBold)
+                        Icon(
+                            imageVector = QawmiIcons.ForumBubble,
+                            contentDescription = "Comment",
+                            tint = HeritageGold,
+                            modifier = Modifier.size(17.dp),
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "${post.commentsCount} মন্তব্য",
+                            color = HeritageGold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                        )
                     }
                 }
 
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     if (canPin) {
                         TextButton(onClick = onPinClick) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = "Pin",
+                                tint = if (post.isPinned) HeritageGold else EmeraldPrimary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = if (post.isPinned) "আনপিন" else "📌 পিন",
+                                text = if (post.isPinned) "আনপিন" else "পিন",
                                 fontSize = 12.sp,
                                 color = EmeraldPrimary,
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }
                     if (canDelete) {
-                        TextButton(onClick = onDeleteClick) {
-                            Text(
-                                text = "🗑️ মুছুন",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.error,
+                        IconButton(onClick = onDeleteClick) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp),
                             )
                         }
                     }
@@ -410,7 +545,7 @@ fun CreatePostDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 16.dp),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
             Column(
@@ -441,7 +576,7 @@ fun CreatePostDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                     )
                     ExposedDropdownMenu(
                         expanded = catExpanded,
@@ -467,7 +602,7 @@ fun CreatePostDialog(
                     label = { Text("বিষয় / শিরোনাম *") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -479,7 +614,7 @@ fun CreatePostDialog(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 4,
                     maxLines = 8,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -491,16 +626,17 @@ fun CreatePostDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(80.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .height(100.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, EmeraldPrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable {
                             photoPicker.launch(
@@ -517,7 +653,19 @@ fun CreatePostDialog(
                             contentScale = ContentScale.Crop,
                         )
                     } else {
-                        Text("ছবি যুক্ত করুন (ঐচ্ছিক)", fontSize = 12.sp, color = EmeraldPrimary)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                tint = EmeraldPrimary,
+                            )
+                            Text(
+                                "ছবি যুক্ত করুন (স্বয়ংক্রিয় <60KB WebP)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = EmeraldPrimary,
+                            )
+                        }
                     }
                 }
 
@@ -541,12 +689,18 @@ fun CreatePostDialog(
                         },
                         enabled = createPostState !is Resource.Loading,
                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                     ) {
                         if (createPostState is Resource.Loading) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("প্রকাশ হচ্ছে...")
                         } else {
-                            Text("পোস্ট করুন")
+                            Text("পোস্ট করুন", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -568,9 +722,9 @@ fun CommentDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(480.dp)
+                .height(500.dp)
                 .padding(vertical = 12.dp),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
             Column(
@@ -578,13 +732,23 @@ fun CommentDialog(
                     .fillMaxSize()
                     .padding(16.dp),
             ) {
-                Text(
-                    text = "মন্তব্যসমূহ: ${post.title}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = EmeraldPrimary,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "মন্তব্যসমূহ (${post.commentsCount})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = EmeraldPrimary,
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
 
+                HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Box(modifier = Modifier.weight(1f)) {
@@ -600,7 +764,10 @@ fun CommentDialog(
                         is Resource.Success -> {
                             if (res.data.isEmpty()) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("এখনও কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!")
+                                    Text(
+                                        "এখনও কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             } else {
                                 LazyColumn(
@@ -610,17 +777,17 @@ fun CommentDialog(
                                     items(res.data, key = { it.commentId }) { comm ->
                                         Card(
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(10.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background),
                                         ) {
-                                            Column(modifier = Modifier.padding(10.dp)) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
                                                 Text(
                                                     text = comm.authorName,
-                                                    style = MaterialTheme.typography.bodySmall,
+                                                    style = MaterialTheme.typography.labelLarge,
                                                     fontWeight = FontWeight.Bold,
                                                     color = EmeraldPrimary,
                                                 )
-                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Spacer(modifier = Modifier.height(3.dp))
                                                 Text(
                                                     text = comm.text,
                                                     style = MaterialTheme.typography.bodyMedium,
@@ -646,18 +813,23 @@ fun CommentDialog(
                         placeholder = { Text("মন্তব্য লিখুন...") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
                             viewModel.addComment(post.postId, commentText)
                             commentText = ""
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.height(52.dp),
                     ) {
-                        Text("পাঠান")
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 }
             }

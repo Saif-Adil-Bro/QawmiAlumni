@@ -15,12 +15,15 @@ private val LightColorScheme = lightColorScheme(
     onSecondary = HeritageGoldOn,
     secondaryContainer = HeritageGoldContainer,
     onSecondaryContainer = HeritageGoldOnContainer,
+    tertiary = EmeraldTeal,
     background = LightBackground,
     onBackground = LightOnBackground,
     surface = LightSurface,
     onSurface = LightOnSurface,
     surfaceVariant = LightSurfaceVariant,
     onSurfaceVariant = LightOnSurfaceVariant,
+    outline = LightOutline,
+    outlineVariant = LightOutline,
 )
 
 private val DarkColorScheme = darkColorScheme(
@@ -28,16 +31,19 @@ private val DarkColorScheme = darkColorScheme(
     onPrimary = EmeraldOnPrimaryContainer,
     primaryContainer = EmeraldPrimary,
     onPrimaryContainer = EmeraldPrimaryContainer,
-    secondary = HeritageGold,
+    secondary = HeritageGoldLight,
     onSecondary = HeritageGoldOn,
     secondaryContainer = HeritageGoldContainer,
     onSecondaryContainer = HeritageGoldOnContainer,
+    tertiary = EmeraldTeal,
     background = DarkBackground,
     onBackground = DarkOnBackground,
     surface = DarkSurface,
     onSurface = DarkOnSurface,
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkOnSurfaceVariant,
+    outline = DarkOutline,
+    outlineVariant = DarkOutline,
 )
 
 @Composable

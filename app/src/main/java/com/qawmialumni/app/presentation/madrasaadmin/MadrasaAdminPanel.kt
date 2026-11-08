@@ -70,7 +70,11 @@ import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.Ustad
 import com.qawmialumni.app.domain.model.UstadHonorific
 import com.qawmialumni.app.presentation.components.BloodGroupPill
+import com.qawmialumni.app.presentation.components.ModernEmptyState
+import com.qawmialumni.app.presentation.components.QawmiIcons
+import com.qawmialumni.app.presentation.components.StatSummaryCard
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
+import com.qawmialumni.app.presentation.theme.EmeraldTeal
 import com.qawmialumni.app.presentation.theme.HeritageGold
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,12 +85,16 @@ fun MadrasaAdminPanel(
     var selectedSubTab by remember { mutableIntStateOf(0) }
     val actionState by viewModel.actionState.collectAsState()
     val pendingRes by viewModel.pendingRequests.collectAsState()
+    val ustadsRes by viewModel.ustadsList.collectAsState()
+    val noticesRes by viewModel.noticesList.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showAddUstadDialog by remember { mutableStateOf(false) }
     var showCreateNoticeDialog by remember { mutableStateOf(false) }
 
     val pendingCount = (pendingRes as? Resource.Success)?.data?.size ?: 0
+    val ustadCount = (ustadsRes as? Resource.Success)?.data?.size ?: 0
+    val noticeCount = (noticesRes as? Resource.Success)?.data?.size ?: 0
 
     LaunchedEffect(actionState) {
         when (actionState) {
@@ -104,6 +112,34 @@ fun MadrasaAdminPanel(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
+            // Admin KPI Summary Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                StatSummaryCard(
+                    title = "পেন্ডিং আবেদন",
+                    value = "$pendingCount জন",
+                    accentColor = HeritageGold,
+                    modifier = Modifier.weight(1f),
+                )
+                StatSummaryCard(
+                    title = "আসাতিযায়ে কেরাম",
+                    value = "$ustadCount জন",
+                    accentColor = EmeraldPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                StatSummaryCard(
+                    title = "প্রকাশিত নোটিশ",
+                    value = "$noticeCount টি",
+                    accentColor = EmeraldTeal,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
             PrimaryTabRow(
                 selectedTabIndex = selectedSubTab,
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -114,7 +150,7 @@ fun MadrasaAdminPanel(
                     onClick = { selectedSubTab = 0 },
                     text = {
                         Text(
-                            if (pendingCount > 0) "পেন্ডিং আবেদন ($pendingCount)" else "পেন্ডিং আবেদন",
+                            if (pendingCount > 0) "পেন্ডিং ($pendingCount)" else "পেন্ডিং আবেদন",
                             fontWeight = FontWeight.Bold,
                         )
                     },
@@ -186,9 +222,10 @@ fun PendingRequestsSection(viewModel: MadrasaAdminViewModel) {
         is Resource.Success -> {
             if (res.data.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "নতুন কোনো পেন্ডিং আবেদন নেই।",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ModernEmptyState(
+                        icon = QawmiIcons.AdminShield,
+                        title = "নতুন কোনো পেন্ডিং আবেদন নেই",
+                        subtitle = "কোনো ছাত্র বা ফারেগ মাদরাসা কোড দিয়ে আবেদন করলে তা যাচাইয়ের জন্য এখানে প্রদর্শিত হবে।",
                     )
                 }
             } else {
