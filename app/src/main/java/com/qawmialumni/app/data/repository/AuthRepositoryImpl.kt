@@ -184,13 +184,47 @@ class AuthRepositoryImpl @Inject constructor(
 
     private suspend fun fetchAndCacheProfile(uid: String): Resource<UserProfile> {
         return try {
+            val email = auth.currentUser?.email.orEmpty().trim().lowercase()
             val doc = firestore.collection("users").document(uid).get().await()
-            if (!doc.exists()) {
-                val fallback = UserProfile(uid = uid, email = auth.currentUser?.email.orEmpty())
-                return Resource.Success(fallback)
+
+            var profile = if (!doc.exists()) {
+                UserProfile(uid = uid, email = email)
+            } else {
+                doc.toObject(UserDto::class.java)?.toDomain()?.copy(
+                    uid = uid,
+                    email = doc.getString("email")?.takeIf { it.isNotBlank() } ?: email,
+                ) ?: UserProfile(uid = uid, email = email)
             }
-            val profile = doc.toObject(UserDto::class.java)?.toDomain()
-                ?: UserProfile(uid = uid)
+
+            // If user is still regular alumni/none, check if Super Admin assigned their email as madrasa_admin
+            if (email.isNotBlank() && profile.role == UserRole.ALUMNI && profile.status == UserStatus.NONE) {
+                val pendingAdminMadrasaQuery = firestore.collection("madrasas")
+                    .whereArrayContains("pendingAdminEmails", email)
+                    .limit(1)
+                    .get()
+                    .await()
+                val assignedMadrasaDoc = pendingAdminMadrasaQuery.documents.firstOrNull()
+                if (assignedMadrasaDoc != null) {
+                    val madrasaId = assignedMadrasaDoc.id
+                    profile = profile.copy(
+                        role = UserRole.MADRASA_ADMIN,
+                        madrasaId = madrasaId,
+                        status = UserStatus.APPROVED,
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                    firestore.collection("users").document(uid)
+                        .set(UserDto.fromDomain(profile), SetOptions.merge())
+                        .await()
+                    firestore.collection("madrasas").document(madrasaId)
+                        .update(
+                            mapOf(
+                                "adminUids" to FieldValue.arrayUnion(uid),
+                                "pendingAdminEmails" to FieldValue.arrayRemove(email),
+                            )
+                        ).await()
+                }
+            }
+
             dataStore.saveUserSession(profile)
             Resource.Success(profile)
         } catch (e: Exception) {
