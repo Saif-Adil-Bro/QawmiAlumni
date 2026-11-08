@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.Locale
 import javax.inject.Inject
 
 sealed interface CreateMadrasaUiState {
@@ -37,6 +36,9 @@ class SuperAdminViewModel @Inject constructor(
 
     private val _createState = MutableStateFlow<CreateMadrasaUiState>(CreateMadrasaUiState.Idle)
     val createState: StateFlow<CreateMadrasaUiState> = _createState.asStateFlow()
+
+    private val _assignAdminState = MutableStateFlow<Resource<Unit>?>(null)
+    val assignAdminState: StateFlow<Resource<Unit>?> = _assignAdminState.asStateFlow()
 
     fun generateUniqueCode(name: String): String {
         val initials = name.split(" ")
@@ -78,7 +80,21 @@ class SuperAdminViewModel @Inject constructor(
         }
     }
 
+    fun assignAdminToMadrasa(
+        madrasaId: String,
+        adminEmail: String,
+    ) {
+        viewModelScope.launch {
+            _assignAdminState.value = Resource.Loading
+            _assignAdminState.value = adminRepository.assignMadrasaAdminEmail(madrasaId, adminEmail)
+        }
+    }
+
     fun resetCreateState() {
         _createState.value = CreateMadrasaUiState.Idle
+    }
+
+    fun resetAssignAdminState() {
+        _assignAdminState.value = null
     }
 }

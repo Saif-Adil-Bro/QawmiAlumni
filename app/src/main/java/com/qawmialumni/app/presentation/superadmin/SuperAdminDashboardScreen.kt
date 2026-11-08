@@ -73,6 +73,7 @@ fun SuperAdminDashboardScreen(
 ) {
     val madrasasResource by viewModel.madrasasList.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
+    var selectedMadrasaForAdminAssign by remember { mutableStateOf<Madrasa?>(null) }
 
     Scaffold(
         topBar = {
@@ -160,7 +161,10 @@ fun SuperAdminDashboardScreen(
                                 )
                             }
                             items(res.data, key = { it.madrasaId }) { madrasa ->
-                                MadrasaAdminCard(madrasa = madrasa)
+                                MadrasaAdminCard(
+                                    madrasa = madrasa,
+                                    onAssignAdminClick = { selectedMadrasaForAdminAssign = madrasa },
+                                )
                             }
                         }
                     }
@@ -175,83 +179,225 @@ fun SuperAdminDashboardScreen(
             onDismiss = { showCreateDialog = false },
         )
     }
+
+    selectedMadrasaForAdminAssign?.let { madrasa ->
+        AssignMadrasaAdminDialog(
+            madrasa = madrasa,
+            viewModel = viewModel,
+            onDismiss = { selectedMadrasaForAdminAssign = null },
+        )
+    }
 }
 
 @Composable
-fun MadrasaAdminCard(madrasa: Madrasa) {
+fun MadrasaAdminCard(
+    madrasa: Madrasa,
+    onAssignAdminClick: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(2.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(54.dp)
-                    .clip(CircleShape)
-                    .background(EmeraldPrimary.copy(alpha = 0.1f)),
-                contentAlignment = Alignment.Center,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (madrasa.logoUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = madrasa.logoUrl,
-                        contentDescription = madrasa.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                } else {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(EmeraldPrimary.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (madrasa.logoUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = madrasa.logoUrl,
+                            contentDescription = madrasa.name,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Text(
+                            text = madrasa.name.take(1),
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldPrimary,
+                            fontSize = 20.sp,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = madrasa.name.take(1),
+                        text = madrasa.name,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = EmeraldPrimary,
-                        fontSize = 20.sp,
                     )
+                    if (madrasa.address.isNotBlank()) {
+                        Text(
+                            text = madrasa.address,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(HeritageGold.copy(alpha = 0.15f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "কোড: ${madrasa.code}",
+                                fontWeight = FontWeight.Bold,
+                                color = HeritageGold,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "আলামনাই: ${madrasa.totalAlumniCount} জন",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val adminInfo = when {
+                    madrasa.pendingAdminEmails.isNotEmpty() ->
+                        "অ্যাডমিন ইমেইল: ${madrasa.pendingAdminEmails.joinToString(", ")}"
+                    madrasa.adminUids.isNotEmpty() ->
+                        "অ্যাডমিন যুক্ত: ${madrasa.adminUids.size} জন"
+                    else -> "অ্যাডমিন এখনও নির্ধারণ করা হয়নি"
+                }
                 Text(
-                    text = madrasa.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = adminInfo,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+
+                OutlinedButton(
+                    onClick = onAssignAdminClick,
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text("🔑 অ্যাডমিন নিয়োগ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EmeraldPrimary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AssignMadrasaAdminDialog(
+    madrasa: Madrasa,
+    viewModel: SuperAdminViewModel,
+    onDismiss: () -> Unit,
+) {
+    val assignState by viewModel.assignAdminState.collectAsState()
+    var adminEmail by remember {
+        mutableStateOf(madrasa.pendingAdminEmails.firstOrNull().orEmpty())
+    }
+
+    LaunchedEffect(assignState) {
+        if (assignState is Resource.Success) {
+            viewModel.resetAssignAdminState()
+            onDismiss()
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Text(
+                    text = "মাদরাসা অ্যাডমিন নিয়োগ / পরিবর্তন",
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = EmeraldPrimary,
                 )
-                if (madrasa.address.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = madrasa.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = HeritageGold,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = adminEmail,
+                    onValueChange = { adminEmail = it },
+                    label = { Text("অ্যাডমিনের ইমেইল *") },
+                    placeholder = { Text("admin@madrasa.org") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    shape = RoundedCornerShape(10.dp),
+                )
+
+                if (assignState is Resource.Error) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = madrasa.address,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = (assignState as Resource.Error).message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(HeritageGold.copy(alpha = 0.15f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "কোড: ${madrasa.code}",
-                            fontWeight = FontWeight.Bold,
-                            color = HeritageGold,
-                            fontSize = 11.sp,
-                        )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("বাতিল")
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "আলামনাই: ${madrasa.totalAlumniCount} জন",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Button(
+                        onClick = {
+                            viewModel.assignAdminToMadrasa(madrasa.madrasaId, adminEmail)
+                        },
+                        enabled = assignState !is Resource.Loading,
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                        shape = RoundedCornerShape(10.dp),
+                    ) {
+                        if (assignState is Resource.Loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Text("অ্যাডমিন নিশ্চিত করুন")
+                        }
+                    }
                 }
             }
         }

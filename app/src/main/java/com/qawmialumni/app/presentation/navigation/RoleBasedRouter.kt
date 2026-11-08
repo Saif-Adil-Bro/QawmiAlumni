@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.qawmialumni.app.core.datastore.CachedUserSession
 import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
+import com.qawmialumni.app.core.util.Resource
+import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.UserStatus
 import com.qawmialumni.app.domain.repository.AuthRepository
@@ -42,18 +44,6 @@ import kotlinx.coroutines.launch
 
 /**
  * Single-App Multi-Role System & Startup Router (Blueprint §2 & §5.A).
- *
- * Flow:
- * 1. Reactively observes Firebase Auth state (`authRepository.authState`) and DataStore session.
- * 2. When signed in, fetches fresh profile from Firestore and updates DataStore.
- * 3. Dynamically routes inside Jetpack Compose:
- *    - super_admin -> SuperAdminDashboard
- *    - madrasa_admin -> MainApp(showAdminTab = true, showStaffTools = true)
- *    - staff -> MainApp(showAdminTab = false, showStaffTools = true)
- *    - alumni:
- *        - none -> JoinMadrasaByCodeScreen
- *        - pending -> PendingApprovalScreen
- *        - approved -> MainApp(showAdminTab = false, showStaffTools = false)
  */
 @Composable
 fun RoleBasedRouter(
@@ -65,15 +55,15 @@ fun RoleBasedRouter(
     val authViewModel: AuthViewModel = hiltViewModel()
     val joinViewModel: JoinMadrasaViewModel = hiltViewModel()
 
-    // Reactive auth state stream so login/signup triggers immediate recomposition!
     val authStateUid by authRepository.authState.collectAsState(initial = authRepository.currentUserId)
     var manualUid by remember { mutableStateOf(authRepository.currentUserId) }
     val currentUid = authStateUid ?: manualUid
 
     val cachedSession by dataStore.userSession.collectAsState(initial = CachedUserSession())
+    var fetchedProfile by remember { mutableStateOf<UserProfile?>(null) }
 
     var isCheckingFirestore by remember { mutableStateOf(currentUid != null) }
-    var authScreenMode by remember { mutableStateOf("login") } // "login" or "signup"
+    var authScreenMode by remember { mutableStateOf("login") }
 
     val scope = rememberCoroutineScope()
 
@@ -81,17 +71,25 @@ fun RoleBasedRouter(
     LaunchedEffect(currentUid) {
         if (currentUid != null) {
             isCheckingFirestore = true
-            authRepository.fetchUserProfile(currentUid)
+            when (val res = authRepository.fetchUserProfile(currentUid)) {
+                is Resource.Success -> fetchedProfile = res.data
+                else -> fetchedProfile = UserProfile(uid = currentUid)
+            }
             isCheckingFirestore = false
         } else {
+            fetchedProfile = null
             isCheckingFirestore = false
         }
     }
 
-    // Perform navigation callbacks inside LaunchedEffect to avoid side-effects during composition
-    LaunchedEffect(currentUid, isCheckingFirestore, cachedSession.uid, cachedSession.role, cachedSession.status) {
-        if (currentUid != null && !isCheckingFirestore && cachedSession.uid == currentUid) {
-            when (cachedSession.role) {
+    val effectiveRole = fetchedProfile?.role ?: cachedSession.role
+    val effectiveStatus = fetchedProfile?.status ?: cachedSession.status
+    val effectiveName = fetchedProfile?.name?.ifBlank { cachedSession.name } ?: cachedSession.name
+
+    // Perform navigation callbacks inside LaunchedEffect once profile is resolved
+    LaunchedEffect(currentUid, isCheckingFirestore, effectiveRole, effectiveStatus) {
+        if (currentUid != null && !isCheckingFirestore) {
+            when (effectiveRole) {
                 UserRole.SUPER_ADMIN -> {
                     onNavigateToSuperAdmin()
                 }
@@ -102,7 +100,7 @@ fun RoleBasedRouter(
                     onNavigateToMainApp(false, true)
                 }
                 UserRole.ALUMNI -> {
-                    if (cachedSession.status == UserStatus.APPROVED) {
+                    if (effectiveStatus == UserStatus.APPROVED) {
                         onNavigateToMainApp(false, false)
                     }
                 }
@@ -111,7 +109,6 @@ fun RoleBasedRouter(
     }
 
     if (currentUid == null) {
-        // Not logged in -> Show Login or Sign-up
         if (authScreenMode == "signup") {
             SignUpScreen(
                 viewModel = authViewModel,
@@ -140,8 +137,7 @@ fun RoleBasedRouter(
         return
     }
 
-    // Wait while Firestore profile is loading or DataStore session hasn't synced the current UID yet
-    if (isCheckingFirestore || cachedSession.uid != currentUid) {
+    if (isCheckingFirestore) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
@@ -157,16 +153,19 @@ fun RoleBasedRouter(
     }
 
     // For ALUMNI who are not yet APPROVED, render their onboarding / pending / rejected screen
-    if (cachedSession.role == UserRole.ALUMNI) {
-        when (cachedSession.status) {
+    if (effectiveRole == UserRole.ALUMNI) {
+        when (effectiveStatus) {
             UserStatus.NONE -> {
                 JoinMadrasaByCodeScreen(
                     viewModel = joinViewModel,
-                    initialName = cachedSession.name,
+                    initialName = effectiveName,
                     onSubmitSuccess = {
                         scope.launch {
                             isCheckingFirestore = true
-                            authRepository.fetchUserProfile(currentUid)
+                            when (val res = authRepository.fetchUserProfile(currentUid)) {
+                                is Resource.Success -> fetchedProfile = res.data
+                                else -> Unit
+                            }
                             isCheckingFirestore = false
                         }
                     },
@@ -177,12 +176,16 @@ fun RoleBasedRouter(
                     onCheckStatus = {
                         scope.launch {
                             isCheckingFirestore = true
-                            authRepository.fetchUserProfile(currentUid)
+                            when (val res = authRepository.fetchUserProfile(currentUid)) {
+                                is Resource.Success -> fetchedProfile = res.data
+                                else -> Unit
+                            }
                             isCheckingFirestore = false
                         }
                     },
                     onSignOut = {
                         manualUid = null
+                        fetchedProfile = null
                         authViewModel.signOut()
                     },
                 )
@@ -208,6 +211,7 @@ fun RoleBasedRouter(
                             Button(
                                 onClick = {
                                     manualUid = null
+                                    fetchedProfile = null
                                     authViewModel.signOut()
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),

@@ -86,7 +86,7 @@ class AdminRepositoryImpl @Inject constructor(
                 logoUrl = logoUrl,
                 address = address.trim(),
                 establishedYear = establishedYear.trim(),
-                pendingAdminEmails = if (assignedAdminUid == null && normalizedAdminEmail.isNotBlank()) {
+                pendingAdminEmails = if (normalizedAdminEmail.isNotBlank()) {
                     listOf(normalizedAdminEmail)
                 } else {
                     emptyList()
@@ -101,7 +101,50 @@ class AdminRepositoryImpl @Inject constructor(
                 .await()
 
             if (assignedAdminUid != null) {
-                firestore.collection("users").document(assignedAdminUid)
+                runCatching {
+                    firestore.collection("users").document(assignedAdminUid)
+                        .update(
+                            mapOf(
+                                "role" to UserRole.MADRASA_ADMIN.wireValue,
+                                "madrasaId" to madrasaId,
+                                "status" to UserStatus.APPROVED.wireValue,
+                                "updatedAt" to System.currentTimeMillis(),
+                            )
+                        ).await()
+                }
+            }
+
+            Resource.Success(madrasa)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "মাদরাসা তৈরি করা যায়নি", e)
+        }
+    }
+
+    override suspend fun assignMadrasaAdminEmail(
+        madrasaId: String,
+        adminEmail: String,
+    ): Resource<Unit> {
+        return try {
+            val normalizedEmail = adminEmail.trim().lowercase()
+            if (normalizedEmail.isBlank()) {
+                return Resource.Error("অ্যাডমিনের ইমেইল প্রদান করুন")
+            }
+
+            // 1. Add email to madrasas/{madrasaId}.pendingAdminEmails
+            firestore.collection("madrasas").document(madrasaId)
+                .update("pendingAdminEmails", FieldValue.arrayUnion(normalizedEmail))
+                .await()
+
+            // 2. If user document already exists in users collection, promote them directly as Super Admin!
+            val userQuery = firestore.collection("users")
+                .whereEqualTo("email", normalizedEmail)
+                .limit(1)
+                .get()
+                .await()
+            val existingUserDoc = userQuery.documents.firstOrNull()
+            if (existingUserDoc != null) {
+                val uid = existingUserDoc.id
+                firestore.collection("users").document(uid)
                     .update(
                         mapOf(
                             "role" to UserRole.MADRASA_ADMIN.wireValue,
@@ -110,11 +153,14 @@ class AdminRepositoryImpl @Inject constructor(
                             "updatedAt" to System.currentTimeMillis(),
                         )
                     ).await()
+                firestore.collection("madrasas").document(madrasaId)
+                    .update("adminUids", FieldValue.arrayUnion(uid))
+                    .await()
             }
 
-            Resource.Success(madrasa)
+            Resource.Success(Unit)
         } catch (e: Exception) {
-            Resource.Error(e.localizedMessage ?: "মাদরাসা তৈরি করা যায়নি", e)
+            Resource.Error(e.localizedMessage ?: "অ্যাডমিন নিয়োগ ব্যর্থ হয়েছে", e)
         }
     }
 

@@ -22,6 +22,11 @@ interface AdminRepository {
 
     fun getAllMadrasas(): Flow<Resource<List<Madrasa>>>
 
+    suspend fun assignMadrasaAdminEmail(
+        madrasaId: String,
+        adminEmail: String,
+    ): Resource<Unit>
+
     // Madrasa Admin & Staff functions
     fun getPendingJoinRequests(madrasaId: String): Flow<Resource<List<UserProfile>>>
 

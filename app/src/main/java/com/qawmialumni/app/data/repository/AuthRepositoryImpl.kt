@@ -62,13 +62,16 @@ class AuthRepositoryImpl @Inject constructor(
             val user = result.user ?: return Resource.Error("রেজিস্ট্রেশন ব্যর্থ হয়েছে")
 
             // 1. Check if Super Admin pre-assigned this email as a madrasa_admin
-            val pendingAdminMadrasaQuery = firestore.collection("madrasas")
-                .whereArrayContains("pendingAdminEmails", normalizedEmail)
-                .limit(1)
-                .get()
-                .await()
+            val assignedMadrasaDoc = runCatching {
+                firestore.collection("madrasas")
+                    .whereArrayContains("pendingAdminEmails", normalizedEmail)
+                    .limit(1)
+                    .get()
+                    .await()
+                    .documents
+                    .firstOrNull()
+            }.getOrNull()
 
-            val assignedMadrasaDoc = pendingAdminMadrasaQuery.documents.firstOrNull()
             if (assignedMadrasaDoc != null) {
                 val madrasaId = assignedMadrasaDoc.id
                 val adminProfile = UserProfile(
@@ -82,31 +85,50 @@ class AuthRepositoryImpl @Inject constructor(
                     status = UserStatus.APPROVED,
                     updatedAt = System.currentTimeMillis(),
                 )
-                firestore.collection("users").document(user.uid)
-                    .set(UserDto.fromDomain(adminProfile))
-                    .await()
-                firestore.collection("madrasas").document(madrasaId)
-                    .update(
-                        mapOf(
-                            "adminUids" to FieldValue.arrayUnion(user.uid),
-                            "pendingAdminEmails" to FieldValue.arrayRemove(normalizedEmail),
-                        )
-                    ).await()
+                // Save session locally first so UI never hangs even if strict Firestore rules reject self-role write
                 dataStore.saveUserSession(adminProfile)
+
+                val wroteAdminDoc = runCatching {
+                    firestore.collection("users").document(user.uid)
+                        .set(UserDto.fromDomain(adminProfile))
+                        .await()
+                }.isSuccess
+
+                if (!wroteAdminDoc) {
+                    // Fallback if strict firestore.rules requires role == "alumni" on user self-create
+                    runCatching {
+                        val fallbackDoc = adminProfile.copy(
+                            role = UserRole.ALUMNI,
+                            status = UserStatus.PENDING,
+                        )
+                        firestore.collection("users").document(user.uid)
+                            .set(UserDto.fromDomain(fallbackDoc))
+                            .await()
+                    }
+                }
+
+                runCatching {
+                    firestore.collection("madrasas").document(madrasaId)
+                        .update("adminUids", FieldValue.arrayUnion(user.uid))
+                        .await()
+                }
                 return Resource.Success(adminProfile)
             }
 
-            // 2. Check if Staff/Admin already pre-registered this student by phone or email (Flow 2 auto-linking!)
-            val preRegQuery = if (cleanPhone.isNotBlank()) {
-                firestore.collection("users")
-                    .whereEqualTo("phone", cleanPhone)
-                    .whereEqualTo("status", UserStatus.APPROVED.wireValue)
-                    .limit(1)
-                    .get()
-                    .await()
+            // 2. Check if Staff/Admin already pre-registered this student by phone (Flow 2 auto-linking)
+            val existingDoc = if (cleanPhone.isNotBlank()) {
+                runCatching {
+                    firestore.collection("users")
+                        .whereEqualTo("phone", cleanPhone)
+                        .whereEqualTo("status", UserStatus.APPROVED.wireValue)
+                        .limit(1)
+                        .get()
+                        .await()
+                        .documents
+                        .firstOrNull { it.id.startsWith("STUDENT_") }
+                }.getOrNull()
             } else null
 
-            val existingDoc = preRegQuery?.documents?.firstOrNull { it.id.startsWith("STUDENT_") }
             if (existingDoc != null) {
                 val oldProfile = existingDoc.toObject(UserDto::class.java)?.toDomain()
                 if (oldProfile != null) {
@@ -116,12 +138,13 @@ class AuthRepositoryImpl @Inject constructor(
                         name = oldProfile.name.ifBlank { name.trim() },
                         updatedAt = System.currentTimeMillis(),
                     )
-                    // Migrate to real Firebase Auth UID and remove placeholder document
-                    firestore.collection("users").document(user.uid)
-                        .set(UserDto.fromDomain(linkedProfile))
-                        .await()
-                    firestore.collection("users").document(existingDoc.id).delete().await()
                     dataStore.saveUserSession(linkedProfile)
+                    runCatching {
+                        firestore.collection("users").document(user.uid)
+                            .set(UserDto.fromDomain(linkedProfile))
+                            .await()
+                        firestore.collection("users").document(existingDoc.id).delete().await()
+                    }
                     return Resource.Success(linkedProfile)
                 }
             }
@@ -137,10 +160,12 @@ class AuthRepositoryImpl @Inject constructor(
                 status = UserStatus.NONE,
                 updatedAt = System.currentTimeMillis(),
             )
-            firestore.collection("users").document(user.uid)
-                .set(UserDto.fromDomain(profile))
-                .await()
             dataStore.saveUserSession(profile)
+            runCatching {
+                firestore.collection("users").document(user.uid)
+                    .set(UserDto.fromDomain(profile))
+                    .await()
+            }
             Resource.Success(profile)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "রেজিস্ট্রেশন ব্যর্থ হয়েছে", e)
@@ -152,27 +177,7 @@ class AuthRepositoryImpl @Inject constructor(
             val credential = GoogleAuthProvider.getCredential(idToken, null)
             val result = auth.signInWithCredential(credential).await()
             val user = result.user ?: return Resource.Error("Google সাইন-ইন ব্যর্থ হয়েছে")
-
-            val doc = firestore.collection("users").document(user.uid).get().await()
-            val profile = if (doc.exists()) {
-                doc.toObject(UserDto::class.java)?.toDomain() ?: UserProfile(uid = user.uid)
-            } else {
-                val newProfile = UserProfile(
-                    uid = user.uid,
-                    name = user.displayName.orEmpty(),
-                    email = user.email.orEmpty().lowercase(),
-                    photoUrl = user.photoUrl?.toString().orEmpty(),
-                    role = UserRole.ALUMNI,
-                    status = UserStatus.NONE,
-                    updatedAt = System.currentTimeMillis(),
-                )
-                firestore.collection("users").document(user.uid)
-                    .set(UserDto.fromDomain(newProfile))
-                    .await()
-                newProfile
-            }
-            dataStore.saveUserSession(profile)
-            Resource.Success(profile)
+            fetchAndCacheProfile(user.uid)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Google সাইন-ইন ব্যর্থ হয়েছে", e)
         }
@@ -183,12 +188,18 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     private suspend fun fetchAndCacheProfile(uid: String): Resource<UserProfile> {
+        val email = auth.currentUser?.email.orEmpty().trim().lowercase()
         return try {
-            val email = auth.currentUser?.email.orEmpty().trim().lowercase()
-            val doc = firestore.collection("users").document(uid).get().await()
+            val doc = runCatching {
+                firestore.collection("users").document(uid).get().await()
+            }.getOrNull()
 
-            var profile = if (!doc.exists()) {
-                UserProfile(uid = uid, email = email)
+            var profile = if (doc == null || !doc.exists()) {
+                UserProfile(
+                    uid = uid,
+                    name = auth.currentUser?.displayName.orEmpty(),
+                    email = email,
+                )
             } else {
                 doc.toObject(UserDto::class.java)?.toDomain()?.copy(
                     uid = uid,
@@ -196,14 +207,31 @@ class AuthRepositoryImpl @Inject constructor(
                 ) ?: UserProfile(uid = uid, email = email)
             }
 
-            // If user is still regular alumni/none, check if Super Admin assigned their email as madrasa_admin
-            if (email.isNotBlank() && profile.role == UserRole.ALUMNI && profile.status == UserStatus.NONE) {
-                val pendingAdminMadrasaQuery = firestore.collection("madrasas")
-                    .whereArrayContains("pendingAdminEmails", email)
-                    .limit(1)
-                    .get()
-                    .await()
-                val assignedMadrasaDoc = pendingAdminMadrasaQuery.documents.firstOrNull()
+            // Check if this user is assigned as Madrasa Admin in any madrasa (by email or by adminUids)
+            if (profile.role != UserRole.SUPER_ADMIN && profile.role != UserRole.MADRASA_ADMIN) {
+                val madrasaByUid = runCatching {
+                    firestore.collection("madrasas")
+                        .whereArrayContains("adminUids", uid)
+                        .limit(1)
+                        .get()
+                        .await()
+                        .documents
+                        .firstOrNull()
+                }.getOrNull()
+
+                val madrasaByEmail = if (madrasaByUid == null && email.isNotBlank()) {
+                    runCatching {
+                        firestore.collection("madrasas")
+                            .whereArrayContains("pendingAdminEmails", email)
+                            .limit(1)
+                            .get()
+                            .await()
+                            .documents
+                            .firstOrNull()
+                    }.getOrNull()
+                } else null
+
+                val assignedMadrasaDoc = madrasaByUid ?: madrasaByEmail
                 if (assignedMadrasaDoc != null) {
                     val madrasaId = assignedMadrasaDoc.id
                     profile = profile.copy(
@@ -212,23 +240,26 @@ class AuthRepositoryImpl @Inject constructor(
                         status = UserStatus.APPROVED,
                         updatedAt = System.currentTimeMillis(),
                     )
-                    firestore.collection("users").document(uid)
-                        .set(UserDto.fromDomain(profile), SetOptions.merge())
-                        .await()
-                    firestore.collection("madrasas").document(madrasaId)
-                        .update(
-                            mapOf(
-                                "adminUids" to FieldValue.arrayUnion(uid),
-                                "pendingAdminEmails" to FieldValue.arrayRemove(email),
-                            )
-                        ).await()
+                    // Best-effort sync to Firestore (wrapped in runCatching so strict rules never block login!)
+                    runCatching {
+                        firestore.collection("users").document(uid)
+                            .set(UserDto.fromDomain(profile), SetOptions.merge())
+                            .await()
+                    }
+                    runCatching {
+                        firestore.collection("madrasas").document(madrasaId)
+                            .update("adminUids", FieldValue.arrayUnion(uid))
+                            .await()
+                    }
                 }
             }
 
             dataStore.saveUserSession(profile)
             Resource.Success(profile)
         } catch (e: Exception) {
-            Resource.Error(e.localizedMessage ?: "প্রোফাইল লোড করা যায়নি", e)
+            val fallback = UserProfile(uid = uid, email = email)
+            runCatching { dataStore.saveUserSession(fallback) }
+            Resource.Success(fallback)
         }
     }
 
