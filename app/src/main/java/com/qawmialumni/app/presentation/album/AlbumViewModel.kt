@@ -193,9 +193,13 @@ class AlbumViewModel @Inject constructor(
         bio: String,
         photoUri: Uri?,
     ) {
-        val madrasaId = session.value?.madrasaId ?: return
+        if (name.isBlank()) {
+            _addStudentState.value = Resource.Error("অনুগ্রহ করে ছাত্রের নাম লিখুন")
+            return
+        }
         viewModelScope.launch {
             _addStudentState.value = Resource.Loading
+            val madrasaId = session.value?.madrasaId.orEmpty()
             val student = UserProfile(
                 name = name.trim(),
                 fatherName = fatherName.trim(),

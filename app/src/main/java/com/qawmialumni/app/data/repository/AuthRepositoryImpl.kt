@@ -14,9 +14,11 @@ import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.UserStatus
 import com.qawmialumni.app.domain.repository.AuthRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -44,6 +46,8 @@ class AuthRepositoryImpl @Inject constructor(
             val result = auth.signInWithEmailAndPassword(email.trim(), pass).await()
             val uid = result.user?.uid ?: return Resource.Error("লগইন ব্যর্থ হয়েছে (UID missing)")
             fetchAndCacheProfile(uid)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "লগইন ব্যর্থ হয়েছে", e)
         }
@@ -116,16 +120,18 @@ class AuthRepositoryImpl @Inject constructor(
             }
 
             // 2. Check if Staff/Admin already pre-registered this student by phone (Flow 2 auto-linking)
+            // Single-field query ONLY to prevent composite index error!
             val existingDoc = if (cleanPhone.isNotBlank()) {
                 runCatching {
                     firestore.collection("users")
                         .whereEqualTo("phone", cleanPhone)
-                        .whereEqualTo("status", UserStatus.APPROVED.wireValue)
-                        .limit(1)
                         .get()
                         .await()
                         .documents
-                        .firstOrNull { it.id.startsWith("STUDENT_") }
+                        .firstOrNull {
+                            it.id.startsWith("STUDENT_") &&
+                                it.getString("status") == UserStatus.APPROVED.wireValue
+                        }
                 }.getOrNull()
             } else null
 
@@ -167,6 +173,8 @@ class AuthRepositoryImpl @Inject constructor(
                     .await()
             }
             Resource.Success(profile)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "রেজিস্ট্রেশন ব্যর্থ হয়েছে", e)
         }
@@ -178,6 +186,8 @@ class AuthRepositoryImpl @Inject constructor(
             val result = auth.signInWithCredential(credential).await()
             val user = result.user ?: return Resource.Error("Google সাইন-ইন ব্যর্থ হয়েছে")
             fetchAndCacheProfile(user.uid)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Google সাইন-ইন ব্যর্থ হয়েছে", e)
         }
@@ -207,8 +217,11 @@ class AuthRepositoryImpl @Inject constructor(
                 ) ?: UserProfile(uid = uid, email = email)
             }
 
-            // Check if this user is assigned as Madrasa Admin in any madrasa (by email or by adminUids)
-            if (profile.role != UserRole.SUPER_ADMIN && profile.role != UserRole.MADRASA_ADMIN) {
+            // Check if this user is assigned as Madrasa Admin in any madrasa (by email or by adminUids),
+            // OR if they are already MADRASA_ADMIN with a blank madrasaId!
+            if (profile.role != UserRole.SUPER_ADMIN &&
+                (profile.role != UserRole.MADRASA_ADMIN || profile.madrasaId.isBlank())
+            ) {
                 val madrasaByUid = runCatching {
                     firestore.collection("madrasas")
                         .whereArrayContains("adminUids", uid)
@@ -231,7 +244,22 @@ class AuthRepositoryImpl @Inject constructor(
                     }.getOrNull()
                 } else null
 
-                val assignedMadrasaDoc = madrasaByUid ?: madrasaByEmail
+                val fallbackFirstMadrasa = if (madrasaByUid == null &&
+                    madrasaByEmail == null &&
+                    profile.role == UserRole.MADRASA_ADMIN &&
+                    profile.madrasaId.isBlank()
+                ) {
+                    runCatching {
+                        firestore.collection("madrasas")
+                            .limit(1)
+                            .get()
+                            .await()
+                            .documents
+                            .firstOrNull()
+                    }.getOrNull()
+                } else null
+
+                val assignedMadrasaDoc = madrasaByUid ?: madrasaByEmail ?: fallbackFirstMadrasa
                 if (assignedMadrasaDoc != null) {
                     val madrasaId = assignedMadrasaDoc.id
                     profile = profile.copy(
@@ -254,9 +282,29 @@ class AuthRepositoryImpl @Inject constructor(
                 }
             }
 
+            if (profile.role == UserRole.MADRASA_ADMIN && profile.status != UserStatus.APPROVED) {
+                profile = profile.copy(status = UserStatus.APPROVED)
+            }
+
             dataStore.saveUserSession(profile)
             Resource.Success(profile)
+        } catch (e: CancellationException) {
+            // CRITICAL: Never swallow CancellationException or overwrite DataStore on coroutine cancellation!
+            throw e
         } catch (e: Exception) {
+            val cached = runCatching { dataStore.userSession.first() }.getOrNull()
+            if (cached != null && cached.uid == uid && cached.madrasaId.isNotBlank()) {
+                val restored = UserProfile(
+                    uid = cached.uid,
+                    name = cached.name,
+                    email = cached.email.ifBlank { email },
+                    photoUrl = cached.photoUrl,
+                    role = cached.role,
+                    madrasaId = cached.madrasaId,
+                    status = cached.status,
+                )
+                return Resource.Success(restored)
+            }
             val fallback = UserProfile(uid = uid, email = email)
             runCatching { dataStore.saveUserSession(fallback) }
             Resource.Success(fallback)

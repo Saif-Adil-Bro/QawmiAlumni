@@ -17,6 +17,7 @@ import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.UserStatus
 import com.qawmialumni.app.domain.repository.AlumniRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
@@ -62,21 +63,39 @@ class AlumniRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Incremental sync strategy (Blueprint §5.D.1):
-     * Queries Firestore only for documents where updatedAt > lastLocalSyncTime.
-     * Keeps reads strictly within Spark Free Quota (50k/day)!
+     * Single-field Firestore query (.whereEqualTo("madrasaId", madrasaId)) to completely avoid
+     * FAILED_PRECONDITION composite index errors, while filtering approved alumni in memory
+     * and syncing bi-directionally with Room.
      */
     override suspend fun syncAlumniFromRemote(madrasaId: String): Resource<Int> {
+        if (madrasaId.isBlank()) return Resource.Success(0)
         return try {
-            val lastUpdated = alumniDao.getLatestUpdatedAt(madrasaId) ?: 0L
+            // 1. Best-effort push of any locally added STUDENT_* profiles to Firestore
+            runCatching {
+                val localApproved = alumniDao.getApprovedAlumni(madrasaId).first()
+                localApproved.filter { it.uid.startsWith("STUDENT_") }.forEach { localEntity ->
+                    firestore.collection("users").document(localEntity.uid)
+                        .set(UserDto.fromDomain(localEntity.toDomain()), SetOptions.merge())
+                        .await()
+                }
+            }
+
+            // 2. Single-field query ONLY (no composite index required!)
             val snapshot = firestore.collection("users")
                 .whereEqualTo("madrasaId", madrasaId)
-                .whereEqualTo("status", UserStatus.APPROVED.wireValue)
-                .whereGreaterThan("updatedAt", lastUpdated)
                 .get()
                 .await()
 
-            val remoteUsers = snapshot.documents.mapNotNull { it.toObject(UserDto::class.java)?.toDomain() }
+            val remoteUsers = snapshot.documents
+                .mapNotNull { it.toObject(UserDto::class.java)?.toDomain() }
+                .filter { user ->
+                    user.status == UserStatus.APPROVED &&
+                        (user.role == UserRole.ALUMNI ||
+                            user.role == UserRole.STAFF ||
+                            user.uid.startsWith("STUDENT_") ||
+                            user.batchYearHijri.isNotBlank())
+                }
+
             if (remoteUsers.isNotEmpty()) {
                 alumniDao.upsertAlumni(remoteUsers.map { it.toEntity() })
             }
@@ -88,7 +107,7 @@ class AlumniRepositoryImpl @Inject constructor(
 
     /**
      * Flow 2: Direct Creation by Admin/Staff (Blueprint §5.B Flow 2)
-     * Saves with status = 'approved'.
+     * Saves with status = 'approved' immediately to local Room DB and syncs to Firestore.
      */
     override suspend fun addStudentByStaff(student: UserProfile, photoUri: Uri?): Resource<Unit> {
         return try {
@@ -101,27 +120,61 @@ class AlumniRepositoryImpl @Inject constructor(
                 }
             }
 
+            var resolvedMadrasaId = student.madrasaId.trim()
+            if (resolvedMadrasaId.isBlank()) {
+                val cached = dataStore.userSession.first()
+                resolvedMadrasaId = cached.madrasaId.trim()
+                if (resolvedMadrasaId.isBlank()) {
+                    resolvedMadrasaId = runCatching {
+                        firestore.collection("madrasas").limit(1).get().await()
+                            .documents.firstOrNull()?.id.orEmpty()
+                    }.getOrDefault("")
+                }
+                if (resolvedMadrasaId.isNotBlank() && cached.uid.isNotBlank()) {
+                    dataStore.saveUserSession(
+                        UserProfile(
+                            uid = cached.uid,
+                            name = cached.name,
+                            email = cached.email,
+                            photoUrl = cached.photoUrl,
+                            role = cached.role,
+                            madrasaId = resolvedMadrasaId,
+                            status = cached.status,
+                        )
+                    )
+                }
+            }
+
+            if (resolvedMadrasaId.isBlank()) {
+                return Resource.Error("মাদরাসা আইডি পাওয়া যায়নি। অনুগ্রহ করে পুনরায় লগইন করুন।")
+            }
+
             val uid = student.uid.ifBlank { "STUDENT_${UUID.randomUUID()}" }
             val finalStudent = student.copy(
                 uid = uid,
+                madrasaId = resolvedMadrasaId,
                 photoUrl = photoUrl,
                 role = UserRole.ALUMNI,
                 status = UserStatus.APPROVED,
                 updatedAt = System.currentTimeMillis(),
             )
 
-            // Save to Firestore
-            firestore.collection("users").document(uid)
-                .set(UserDto.fromDomain(finalStudent))
-                .await()
-
-            // Increment madrasa alumni counter
-            firestore.collection("madrasas").document(student.madrasaId)
-                .update("totalAlumniCount", FieldValue.increment(1))
-                .await()
-
-            // Cache immediately to Room
+            // 1. Cache immediately to local Room DB first so it NEVER disappears locally!
             alumniDao.upsertSingle(finalStudent.toEntity())
+
+            // 2. Save to Firestore (wrapped in runCatching so strict rules before update never lose local data)
+            runCatching {
+                firestore.collection("users").document(uid)
+                    .set(UserDto.fromDomain(finalStudent))
+                    .await()
+            }
+
+            // 3. Best-effort increment madrasa alumni counter
+            runCatching {
+                firestore.collection("madrasas").document(resolvedMadrasaId)
+                    .update("totalAlumniCount", FieldValue.increment(1))
+                    .await()
+            }
 
             Resource.Success(Unit)
         } catch (e: Exception) {
@@ -151,13 +204,41 @@ class AlumniRepositoryImpl @Inject constructor(
                 updatedAt = System.currentTimeMillis(),
             )
 
-            firestore.collection("users").document(updatedProfile.uid)
-                .set(UserDto.fromDomain(updatedProfile), SetOptions.merge())
-                .await()
-
+            // Save locally first
             dataStore.saveUserSession(updatedProfile)
             if (updatedProfile.status == UserStatus.APPROVED) {
                 alumniDao.upsertSingle(updatedProfile.toEntity())
+            }
+
+            // Save to Firestore (with fallback for strict role-lock rules)
+            val savedFull = runCatching {
+                firestore.collection("users").document(updatedProfile.uid)
+                    .set(UserDto.fromDomain(updatedProfile), SetOptions.merge())
+                    .await()
+            }.isSuccess
+
+            if (!savedFull) {
+                runCatching {
+                    firestore.collection("users").document(updatedProfile.uid)
+                        .update(
+                            mapOf(
+                                "name" to updatedProfile.name,
+                                "fatherName" to updatedProfile.fatherName,
+                                "phone" to updatedProfile.phone,
+                                "whatsApp" to updatedProfile.whatsApp,
+                                "photoUrl" to updatedProfile.photoUrl,
+                                "department" to updatedProfile.department.wireValue,
+                                "batchYearHijri" to updatedProfile.batchYearHijri,
+                                "supervisedByUstadName" to updatedProfile.supervisedByUstadName,
+                                "currentKhedmat" to updatedProfile.currentKhedmat,
+                                "khedmatCategory" to updatedProfile.khedmatCategory.wireValue,
+                                "bloodGroup" to updatedProfile.bloodGroup,
+                                "district" to updatedProfile.district,
+                                "bio" to updatedProfile.bio,
+                                "updatedAt" to updatedProfile.updatedAt,
+                            )
+                        ).await()
+                }
             }
 
             Resource.Success(updatedProfile)

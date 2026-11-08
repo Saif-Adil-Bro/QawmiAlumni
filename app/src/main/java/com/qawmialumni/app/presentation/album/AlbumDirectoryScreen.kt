@@ -34,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +70,13 @@ fun AlbumDirectoryScreen(
     val batches by viewModel.batches.collectAsState()
     val ustadNames by viewModel.ustadNames.collectAsState()
     val session by viewModel.session.collectAsState()
+
+    LaunchedEffect(session?.madrasaId) {
+        val madrasaId = session?.madrasaId.orEmpty()
+        if (madrasaId.isNotBlank()) {
+            viewModel.triggerSync(madrasaId)
+        }
+    }
 
     var selectedAlumniForDetail by remember { mutableStateOf<UserProfile?>(null) }
     var showAddStudentDialog by remember { mutableStateOf(false) }

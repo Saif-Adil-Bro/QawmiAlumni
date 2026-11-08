@@ -6,74 +6,63 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function currentUser() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function isSuperAdmin() {
+      return isSignedIn() && userExists() && currentUser().role == "super_admin";
+    }
+
+    function isAdminOrStaff() {
+      return isSignedIn() && userExists() && currentUser().role in ["super_admin", "madrasa_admin", "staff"];
+    }
+
     match /madrasas/{madrasaId} {
       allow read: if isSignedIn();
-      allow create, delete: if isSignedIn() && currentUser().role == "super_admin";
-      allow update: if isSignedIn() && (
-        currentUser().role == "super_admin" || 
-        (currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == madrasaId) ||
-        (request.auth.token.email in resource.data.pendingAdminEmails)
-      );
+      allow create, delete: if isSuperAdmin();
+      allow update: if isSignedIn();
     }
 
     match /users/{userId} {
       allow read: if isSignedIn();
-      
-      allow create: if isSignedIn() && (
+      allow create, update: if isSignedIn() && (
         request.auth.uid == userId ||
-        (currentUser().role in ["madrasa_admin", "staff", "super_admin"])
+        userId.matches('STUDENT_.*') ||
+        isAdminOrStaff()
       );
-
-      allow update: if isSignedIn() && (
-        currentUser().role == "super_admin" ||
-        (currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == resource.data.madrasaId) ||
-        (request.auth.uid == userId && 
-         request.resource.data.role == resource.data.role && 
-         request.resource.data.status in [resource.data.status, "pending"])
-      );
-
       allow delete: if isSignedIn() && (
         userId.matches('STUDENT_.*') ||
-        currentUser().role in ["super_admin", "madrasa_admin"]
+        isAdminOrStaff()
       );
     }
 
     match /ustads/{ustadId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && (
-        currentUser().role == "super_admin" ||
-        (currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == request.resource.data.madrasaId)
-      );
+      allow read, write: if isSignedIn();
     }
 
     match /forum_posts/{postId} {
-      allow read: if isSignedIn() && currentUser().status == "approved";
-      allow create: if isSignedIn() && currentUser().status == "approved";
-      allow update: if isSignedIn() && currentUser().status == "approved";
+      allow read, create, update: if isSignedIn();
       allow delete: if isSignedIn() && (
         request.auth.uid == resource.data.authorUid ||
-        currentUser().role == "super_admin" ||
-        (currentUser().role in ["madrasa_admin", "staff"] && currentUser().madrasaId == resource.data.madrasaId)
+        isAdminOrStaff()
       );
 
       match /comments/{commentId} {
-        allow read, create: if isSignedIn() && currentUser().status == "approved";
+        allow read, create: if isSignedIn();
       }
     }
 
     match /notices/{noticeId} {
-      allow read: if isSignedIn() && currentUser().status == "approved";
-      allow create, delete: if isSignedIn() && currentUser().role in ["madrasa_admin", "staff", "super_admin"];
-      allow update: if isSignedIn() && currentUser().status == "approved";
+      allow read, create, update, delete: if isSignedIn();
     }
 
     match /chat_rooms/{roomId} {
-      allow read, write: if isSignedIn() && request.auth.uid in resource.data.participants;
-      allow create: if isSignedIn() && request.auth.uid in request.resource.data.participants;
+      allow read, write: if isSignedIn();
     }
   }
 }

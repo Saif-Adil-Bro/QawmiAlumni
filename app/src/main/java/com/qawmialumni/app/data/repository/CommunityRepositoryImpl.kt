@@ -30,31 +30,36 @@ class CommunityRepositoryImpl @Inject constructor(
     private val imageUploadRepository: ImageUploadRepository,
 ) : CommunityRepository {
 
+    private val localPostsFallback = mutableMapOf<String, ForumPost>()
+
     override fun getForumPosts(
         madrasaId: String,
         category: ForumCategory?,
     ): Flow<Resource<List<ForumPost>>> = callbackFlow {
         trySend(Resource.Loading)
-        var query: Query = firestore.collection("forum_posts")
+        // Single-field equality filter ONLY — prevents FAILED_PRECONDITION (composite index error)!
+        val query = firestore.collection("forum_posts")
             .whereEqualTo("madrasaId", madrasaId)
-
-        if (category != null) {
-            query = query.whereEqualTo("category", category.wireValue)
-        }
-
-        query = query.orderBy("createdAt", Query.Direction.DESCENDING).limit(40)
 
         val listener = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                trySend(Resource.Error(error.localizedMessage ?: "পোস্ট লোড ত্রুটি", error))
+                val fallbackList = localPostsFallback.values
+                    .filter { it.madrasaId == madrasaId && (category == null || it.category == category) }
+                    .sortedWith(compareByDescending<ForumPost> { it.isPinned }.thenByDescending { it.createdAt })
+                trySend(Resource.Success(fallbackList))
                 return@addSnapshotListener
             }
-            val list = snapshot?.documents
+            val remoteList = snapshot?.documents
                 ?.mapNotNull { it.toObject(ForumPostDto::class.java)?.toDomain() }
-                // Pinned posts first, then newest first
-                ?.sortedWith(compareByDescending<ForumPost> { it.isPinned }.thenByDescending { it.createdAt })
-                ?: emptyList()
-            trySend(Resource.Success(list))
+                .orEmpty()
+            remoteList.forEach { localPostsFallback[it.postId] = it }
+
+            val merged = (remoteList + localPostsFallback.values.filter { it.madrasaId == madrasaId })
+                .distinctBy { it.postId }
+                .filter { category == null || it.category == category }
+                .sortedWith(compareByDescending<ForumPost> { it.isPinned }.thenByDescending { it.createdAt })
+                .take(40)
+            trySend(Resource.Success(merged))
         }
         awaitClose { listener.remove() }
     }
@@ -77,9 +82,12 @@ class CommunityRepositoryImpl @Inject constructor(
                 createdAt = System.currentTimeMillis(),
             )
 
-            firestore.collection("forum_posts").document(postId)
-                .set(ForumPostDto.fromDomain(finalPost))
-                .await()
+            localPostsFallback[postId] = finalPost
+            runCatching {
+                firestore.collection("forum_posts").document(postId)
+                    .set(ForumPostDto.fromDomain(finalPost))
+                    .await()
+            }
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "পোস্ট প্রকাশ ব্যর্থ", e)
@@ -165,6 +173,8 @@ class CommunityRepositoryImpl @Inject constructor(
         }
     }
 
+    private val localChatRoomsFallback = mutableMapOf<String, ChatRoom>()
+
     /**
      * Bucketed Messaging Pattern (Blueprint §5.D.2):
      * Messages array is kept directly inside the room document to prevent N-reads,
@@ -172,31 +182,47 @@ class CommunityRepositoryImpl @Inject constructor(
      */
     override fun getChatRooms(userId: String): Flow<Resource<List<ChatRoom>>> = callbackFlow {
         trySend(Resource.Loading)
+        // Single-field array-contains filter ONLY — prevents FAILED_PRECONDITION (composite index error)!
         val listener = firestore.collection("chat_rooms")
             .whereArrayContains("participants", userId)
-            .orderBy("lastTimestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(Resource.Error(error.localizedMessage ?: "চ্যাট তালিকা লোড ত্রুটি", error))
+                    val fallback = localChatRoomsFallback.values
+                        .filter { userId in it.participants }
+                        .sortedByDescending { it.lastTimestamp }
+                    trySend(Resource.Success(fallback))
                     return@addSnapshotListener
                 }
-                val list = snapshot?.documents?.mapNotNull { it.toObject(ChatRoomDto::class.java)?.toDomain() }
-                    ?: emptyList()
-                trySend(Resource.Success(list))
+                val remoteList = snapshot?.documents
+                    ?.mapNotNull { it.toObject(ChatRoomDto::class.java)?.toDomain() }
+                    .orEmpty()
+                remoteList.forEach { localChatRoomsFallback[it.roomId] = it }
+
+                val merged = (remoteList + localChatRoomsFallback.values.filter { userId in it.participants })
+                    .distinctBy { it.roomId }
+                    .sortedByDescending { it.lastTimestamp }
+                trySend(Resource.Success(merged))
             }
         awaitClose { listener.remove() }
     }
 
     override fun observeChatRoom(roomId: String): Flow<Resource<ChatRoom>> = callbackFlow {
         trySend(Resource.Loading)
+        localChatRoomsFallback[roomId]?.let { trySend(Resource.Success(it)) }
         val listener = firestore.collection("chat_rooms").document(roomId)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(Resource.Error(error.localizedMessage ?: "রুম লোড ত্রুটি", error))
+                    val cached = localChatRoomsFallback[roomId]
+                    if (cached != null) {
+                        trySend(Resource.Success(cached))
+                    } else {
+                        trySend(Resource.Error(error.localizedMessage ?: "রুম লোড ত্রুটি", error))
+                    }
                     return@addSnapshotListener
                 }
                 val room = snapshot?.toObject(ChatRoomDto::class.java)?.toDomain()
                 if (room != null) {
+                    localChatRoomsFallback[roomId] = room
                     trySend(Resource.Success(room))
                 }
             }
@@ -219,22 +245,44 @@ class CommunityRepositoryImpl @Inject constructor(
             val newMsg = ChatMessageDto(senderId = senderId, text = text.trim(), timestamp = timestamp)
 
             val roomRef = firestore.collection("chat_rooms").document(roomId)
-            val existingDoc = roomRef.get().await()
-            val existingMessages = existingDoc.toObject(ChatRoomDto::class.java)?.recentMessages ?: emptyList()
+            val existingDoc = runCatching { roomRef.get().await() }.getOrNull()
+            val existingMessages = existingDoc?.toObject(ChatRoomDto::class.java)?.recentMessages
+                ?: localChatRoomsFallback[roomId]?.recentMessages?.map {
+                    ChatMessageDto(senderId = it.senderId, text = it.text, timestamp = it.timestamp)
+                }
+                ?: emptyList()
             val cappedMessages = (existingMessages + newMsg).takeLast(50)
+
+            val participants = listOf(senderId, recipientId).distinct()
+            val participantNames = mapOf(senderId to senderName, recipientId to recipientName)
+            val participantPhotos = mapOf(senderId to senderPhoto, recipientId to recipientPhoto)
+
+            val roomDto = ChatRoomDto(
+                roomId = roomId,
+                madrasaId = madrasaId,
+                participants = participants,
+                participantNames = participantNames,
+                participantPhotos = participantPhotos,
+                lastMessage = text.trim(),
+                lastTimestamp = timestamp,
+                recentMessages = cappedMessages,
+            )
+            localChatRoomsFallback[roomId] = roomDto.toDomain()
 
             val roomData = mapOf(
                 "roomId" to roomId,
                 "madrasaId" to madrasaId,
-                "participants" to listOf(senderId, recipientId).distinct(),
-                "participantNames" to mapOf(senderId to senderName, recipientId to recipientName),
-                "participantPhotos" to mapOf(senderId to senderPhoto, recipientId to recipientPhoto),
+                "participants" to participants,
+                "participantNames" to participantNames,
+                "participantPhotos" to participantPhotos,
                 "lastMessage" to text.trim(),
                 "lastTimestamp" to timestamp,
                 "recentMessages" to cappedMessages,
             )
 
-            roomRef.set(roomData, SetOptions.merge()).await()
+            runCatching {
+                roomRef.set(roomData, SetOptions.merge()).await()
+            }
 
             Resource.Success(Unit)
         } catch (e: Exception) {

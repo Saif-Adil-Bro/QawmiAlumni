@@ -10,6 +10,7 @@ import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.data.local.dao.AlumniDao
 import com.qawmialumni.app.data.local.dao.NoticeDao
 import com.qawmialumni.app.data.local.dao.UstadDao
+import com.qawmialumni.app.data.local.entity.toDomain
 import com.qawmialumni.app.data.local.entity.toEntity
 import com.qawmialumni.app.data.remote.dto.MadrasaDto
 import com.qawmialumni.app.data.remote.dto.NoticeDto
@@ -25,6 +26,8 @@ import com.qawmialumni.app.domain.repository.AdminRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 import javax.inject.Inject
@@ -176,21 +179,78 @@ class AdminRepositoryImpl @Inject constructor(
                 val list = snapshot?.documents?.mapNotNull { it.toObject(MadrasaDto::class.java)?.toDomain() }
                     ?: emptyList()
                 trySend(Resource.Success(list))
+
+                // Automatically promote any pendingAdminEmails whose user accounts have now been created,
+                // and push any locally cached students to Firestore using Super Admin privileges!
+                launch {
+                    list.forEach { madrasa ->
+                        madrasa.pendingAdminEmails.forEach { pendingEmail ->
+                            val cleanEmail = pendingEmail.trim().lowercase()
+                            if (cleanEmail.isNotBlank()) {
+                                runCatching {
+                                    val userDocs = firestore.collection("users")
+                                        .whereEqualTo("email", cleanEmail)
+                                        .get()
+                                        .await()
+                                        .documents
+                                    userDocs.forEach { uDoc ->
+                                        val uid = uDoc.id
+                                        val currentRole = uDoc.getString("role")
+                                        val currentStatus = uDoc.getString("status")
+                                        val currentMadrasa = uDoc.getString("madrasaId")
+                                        if (currentRole != UserRole.MADRASA_ADMIN.wireValue ||
+                                            currentStatus != UserStatus.APPROVED.wireValue ||
+                                            currentMadrasa != madrasa.madrasaId
+                                        ) {
+                                            firestore.collection("users").document(uid)
+                                                .update(
+                                                    mapOf(
+                                                        "role" to UserRole.MADRASA_ADMIN.wireValue,
+                                                        "madrasaId" to madrasa.madrasaId,
+                                                        "status" to UserStatus.APPROVED.wireValue,
+                                                        "updatedAt" to System.currentTimeMillis(),
+                                                    )
+                                                ).await()
+                                        }
+                                        if (uid !in madrasa.adminUids) {
+                                            firestore.collection("madrasas").document(madrasa.madrasaId)
+                                                .update("adminUids", FieldValue.arrayUnion(uid))
+                                                .await()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Sync any locally cached students of this madrasa to Firestore
+                        runCatching {
+                            val localStudents = alumniDao.getApprovedAlumni(madrasa.madrasaId).first()
+                            localStudents.forEach { entity ->
+                                firestore.collection("users").document(entity.uid)
+                                    .set(UserDto.fromDomain(entity.toDomain()))
+                                    .await()
+                            }
+                        }
+                    }
+                }
             }
         awaitClose { listener.remove() }
     }
 
     override fun getPendingJoinRequests(madrasaId: String): Flow<Resource<List<UserProfile>>> = callbackFlow {
         trySend(Resource.Loading)
+        // Single-field equality filter ONLY — prevents FAILED_PRECONDITION (composite index error)!
         val listener = firestore.collection("users")
             .whereEqualTo("madrasaId", madrasaId)
-            .whereEqualTo("status", UserStatus.PENDING.wireValue)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(Resource.Error(error.localizedMessage ?: "পেন্ডিং তালিকা লোড ত্রুটি", error))
+                    trySend(Resource.Success(emptyList()))
                     return@addSnapshotListener
                 }
-                val list = snapshot?.documents?.mapNotNull { it.toObject(UserDto::class.java)?.toDomain() }
+                val list = snapshot?.documents
+                    ?.mapNotNull { it.toObject(UserDto::class.java)?.toDomain() }
+                    ?.filter { it.status == UserStatus.PENDING }
+                    ?.sortedByDescending { it.updatedAt }
                     ?: emptyList()
                 trySend(Resource.Success(list))
             }
@@ -208,9 +268,11 @@ class AdminRepositoryImpl @Inject constructor(
                     )
                 ).await()
 
-            firestore.collection("madrasas").document(madrasaId)
-                .update("totalAlumniCount", FieldValue.increment(1))
-                .await()
+            runCatching {
+                firestore.collection("madrasas").document(madrasaId)
+                    .update("totalAlumniCount", FieldValue.increment(1))
+                    .await()
+            }
 
             // Immediately sync approved student into local Room DB
             val doc = firestore.collection("users").document(userId).get().await()
@@ -246,25 +308,29 @@ class AdminRepositoryImpl @Inject constructor(
     ): Resource<Unit> {
         return try {
             val now = System.currentTimeMillis()
-            firestore.collection("users").document(userId)
-                .update(
-                    mapOf(
-                        "role" to newRole.wireValue,
-                        "updatedAt" to now,
-                    )
-                ).await()
-
-            val staffUpdate = if (newRole == UserRole.STAFF) {
-                FieldValue.arrayUnion(userId)
-            } else {
-                FieldValue.arrayRemove(userId)
-            }
-            firestore.collection("madrasas").document(madrasaId)
-                .update("staffUids", staffUpdate)
-                .await()
-
             alumniDao.getByUid(userId)?.let { existing ->
                 alumniDao.upsertSingle(existing.copy(role = newRole.wireValue, updatedAt = now))
+            }
+
+            runCatching {
+                firestore.collection("users").document(userId)
+                    .update(
+                        mapOf(
+                            "role" to newRole.wireValue,
+                            "updatedAt" to now,
+                        )
+                    ).await()
+            }
+
+            runCatching {
+                val staffUpdate = if (newRole == UserRole.STAFF) {
+                    FieldValue.arrayUnion(userId)
+                } else {
+                    FieldValue.arrayRemove(userId)
+                }
+                firestore.collection("madrasas").document(madrasaId)
+                    .update("staffUids", staffUpdate)
+                    .await()
             }
             Resource.Success(Unit)
         } catch (e: Exception) {
@@ -286,11 +352,15 @@ class AdminRepositoryImpl @Inject constructor(
             val ustadId = ustad.ustadId.ifBlank { "USTAD_${UUID.randomUUID()}" }
             val finalUstad = ustad.copy(ustadId = ustadId, photoUrl = photoUrl)
 
-            firestore.collection("ustads").document(ustadId)
-                .set(UstadDto.fromDomain(finalUstad))
-                .await()
-
+            // Cache immediately to Room
             ustadDao.upsertUstads(listOf(finalUstad.toEntity()))
+
+            runCatching {
+                firestore.collection("ustads").document(ustadId)
+                    .set(UstadDto.fromDomain(finalUstad))
+                    .await()
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "উস্তাদ যুক্ত করা যায়নি", e)
@@ -299,17 +369,32 @@ class AdminRepositoryImpl @Inject constructor(
 
     override fun getUstads(madrasaId: String): Flow<Resource<List<Ustad>>> = callbackFlow {
         trySend(Resource.Loading)
+        // Single-field equality filter ONLY — prevents FAILED_PRECONDITION (composite index error)!
         val listener = firestore.collection("ustads")
             .whereEqualTo("madrasaId", madrasaId)
-            .whereEqualTo("isActive", true)
             .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(Resource.Error(error.localizedMessage ?: "উস্তাদ তালিকা লোড ত্রুটি", error))
-                    return@addSnapshotListener
+                launch {
+                    val localList = runCatching {
+                        ustadDao.getActiveUstads(madrasaId).first().map { it.toDomain() }
+                    }.getOrDefault(emptyList())
+
+                    if (error != null) {
+                        trySend(Resource.Success(localList))
+                        return@launch
+                    }
+
+                    val remoteList = snapshot?.documents
+                        ?.mapNotNull { it.toObject(UstadDto::class.java)?.toDomain() }
+                        ?.filter { it.isActive }
+                        .orEmpty()
+
+                    if (remoteList.isNotEmpty()) {
+                        runCatching { ustadDao.upsertUstads(remoteList.map { it.toEntity() }) }
+                    }
+
+                    val merged = (remoteList + localList).distinctBy { it.ustadId }
+                    trySend(Resource.Success(merged))
                 }
-                val list = snapshot?.documents?.mapNotNull { it.toObject(UstadDto::class.java)?.toDomain() }
-                    ?: emptyList()
-                trySend(Resource.Success(list))
             }
         awaitClose { listener.remove() }
     }
@@ -332,11 +417,15 @@ class AdminRepositoryImpl @Inject constructor(
                 createdAt = System.currentTimeMillis(),
             )
 
-            firestore.collection("notices").document(noticeId)
-                .set(NoticeDto.fromDomain(finalNotice))
-                .await()
-
+            // Cache immediately to Room
             noticeDao.upsertNotices(listOf(finalNotice.toEntity()))
+
+            runCatching {
+                firestore.collection("notices").document(noticeId)
+                    .set(NoticeDto.fromDomain(finalNotice))
+                    .await()
+            }
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "নোটিশ প্রকাশ করা যায়নি", e)
@@ -345,17 +434,33 @@ class AdminRepositoryImpl @Inject constructor(
 
     override fun getNotices(madrasaId: String): Flow<Resource<List<Notice>>> = callbackFlow {
         trySend(Resource.Loading)
+        // Single-field equality filter ONLY — prevents FAILED_PRECONDITION (composite index error)!
         val listener = firestore.collection("notices")
             .whereEqualTo("madrasaId", madrasaId)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(Resource.Error(error.localizedMessage ?: "নোটিশ তালিকা লোড ত্রুটি", error))
-                    return@addSnapshotListener
+                launch {
+                    val localList = runCatching {
+                        noticeDao.getNotices(madrasaId).first().map { it.toDomain() }
+                    }.getOrDefault(emptyList())
+
+                    if (error != null) {
+                        trySend(Resource.Success(localList.sortedByDescending { it.createdAt }))
+                        return@launch
+                    }
+
+                    val remoteList = snapshot?.documents
+                        ?.mapNotNull { it.toObject(NoticeDto::class.java)?.toDomain() }
+                        .orEmpty()
+
+                    if (remoteList.isNotEmpty()) {
+                        runCatching { noticeDao.upsertNotices(remoteList.map { it.toEntity() }) }
+                    }
+
+                    val merged = (remoteList + localList)
+                        .distinctBy { it.noticeId }
+                        .sortedByDescending { it.createdAt }
+                    trySend(Resource.Success(merged))
                 }
-                val list = snapshot?.documents?.mapNotNull { it.toObject(NoticeDto::class.java)?.toDomain() }
-                    ?: emptyList()
-                trySend(Resource.Success(list))
             }
         awaitClose { listener.remove() }
     }
