@@ -127,43 +127,106 @@ class AdminRepositoryImpl @Inject constructor(
         madrasaId: String,
         adminEmail: String,
     ): Resource<Unit> {
+        return assignMultipleMadrasaAdminEmails(madrasaId, listOf(adminEmail))
+    }
+
+    override suspend fun assignMultipleMadrasaAdminEmails(
+        madrasaId: String,
+        adminEmails: List<String>,
+    ): Resource<Unit> {
         return try {
-            val normalizedEmail = adminEmail.trim().lowercase()
-            if (normalizedEmail.isBlank()) {
-                return Resource.Error("অ্যাডমিনের ইমেইল প্রদান করুন")
+            val normalizedEmails = adminEmails
+                .map { it.trim().lowercase() }
+                .filter { it.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(it).matches() }
+                .distinct()
+
+            if (normalizedEmails.isEmpty()) {
+                return Resource.Error("সঠিক ইমেইল ঠিকানা প্রদান করুন (কমা দিয়ে একাধিক লিখতে পারেন)")
             }
 
-            // 1. Add email to madrasas/{madrasaId}.pendingAdminEmails
+            // 1. Add emails to madrasas/{madrasaId}.pendingAdminEmails
             firestore.collection("madrasas").document(madrasaId)
-                .update("pendingAdminEmails", FieldValue.arrayUnion(normalizedEmail))
+                .update("pendingAdminEmails", FieldValue.arrayUnion(*normalizedEmails.toTypedArray()))
                 .await()
 
-            // 2. If user document already exists in users collection, promote them directly as Super Admin!
-            val userQuery = firestore.collection("users")
-                .whereEqualTo("email", normalizedEmail)
-                .limit(1)
-                .get()
-                .await()
-            val existingUserDoc = userQuery.documents.firstOrNull()
-            if (existingUserDoc != null) {
-                val uid = existingUserDoc.id
-                firestore.collection("users").document(uid)
-                    .update(
-                        mapOf(
-                            "role" to UserRole.MADRASA_ADMIN.wireValue,
-                            "madrasaId" to madrasaId,
-                            "status" to UserStatus.APPROVED.wireValue,
-                            "updatedAt" to System.currentTimeMillis(),
-                        )
-                    ).await()
-                firestore.collection("madrasas").document(madrasaId)
-                    .update("adminUids", FieldValue.arrayUnion(uid))
+            // 2. For each email, if user document already exists, promote them directly as Madrasa Admin
+            for (email in normalizedEmails) {
+                val userQuery = firestore.collection("users")
+                    .whereEqualTo("email", email)
+                    .limit(1)
+                    .get()
                     .await()
+                val existingUserDoc = userQuery.documents.firstOrNull()
+                if (existingUserDoc != null) {
+                    val uid = existingUserDoc.id
+                    firestore.collection("users").document(uid)
+                        .update(
+                            mapOf(
+                                "role" to UserRole.MADRASA_ADMIN.wireValue,
+                                "madrasaId" to madrasaId,
+                                "status" to UserStatus.APPROVED.wireValue,
+                                "updatedAt" to System.currentTimeMillis(),
+                            )
+                        ).await()
+                    firestore.collection("madrasas").document(madrasaId)
+                        .update("adminUids", FieldValue.arrayUnion(uid))
+                        .await()
+                }
             }
 
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "অ্যাডমিন নিয়োগ ব্যর্থ হয়েছে", e)
+        }
+    }
+
+    override suspend fun removeMadrasaAdmin(
+        madrasaId: String,
+        adminEmailOrUid: String,
+        isUid: Boolean,
+    ): Resource<Unit> {
+        return try {
+            val madrasaDoc = firestore.collection("madrasas").document(madrasaId)
+
+            if (isUid) {
+                // Remove from adminUids
+                madrasaDoc.update("adminUids", FieldValue.arrayRemove(adminEmailOrUid)).await()
+                // Demote user back to ALUMNI
+                runCatching {
+                    firestore.collection("users").document(adminEmailOrUid)
+                        .update(
+                            mapOf(
+                                "role" to UserRole.ALUMNI.wireValue,
+                                "updatedAt" to System.currentTimeMillis(),
+                            )
+                        ).await()
+                }
+            } else {
+                // Remove from pendingAdminEmails
+                val normalizedEmail = adminEmailOrUid.trim().lowercase()
+                madrasaDoc.update("pendingAdminEmails", FieldValue.arrayRemove(normalizedEmail)).await()
+
+                // Check if user account with this email exists and also demote them
+                val userQuery = firestore.collection("users")
+                    .whereEqualTo("email", normalizedEmail)
+                    .limit(1)
+                    .get()
+                    .await()
+                userQuery.documents.firstOrNull()?.id?.let { uid ->
+                    madrasaDoc.update("adminUids", FieldValue.arrayRemove(uid)).await()
+                    firestore.collection("users").document(uid)
+                        .update(
+                            mapOf(
+                                "role" to UserRole.ALUMNI.wireValue,
+                                "updatedAt" to System.currentTimeMillis(),
+                            )
+                        ).await()
+                }
+            }
+
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "অ্যাডমিন অপসারণ করা যায়নি", e)
         }
     }
 

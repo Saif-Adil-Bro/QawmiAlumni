@@ -27,6 +27,17 @@ interface AdminRepository {
         adminEmail: String,
     ): Resource<Unit>
 
+    suspend fun assignMultipleMadrasaAdminEmails(
+        madrasaId: String,
+        adminEmails: List<String>,
+    ): Resource<Unit>
+
+    suspend fun removeMadrasaAdmin(
+        madrasaId: String,
+        adminEmailOrUid: String,
+        isUid: Boolean,
+    ): Resource<Unit>
+
     // Madrasa Admin & Staff functions
     fun getPendingJoinRequests(madrasaId: String): Flow<Resource<List<UserProfile>>>
 

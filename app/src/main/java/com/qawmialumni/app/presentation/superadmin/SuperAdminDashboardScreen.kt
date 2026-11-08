@@ -1323,14 +1323,12 @@ fun AssignMadrasaAdminDialog(
     onDismiss: () -> Unit,
 ) {
     val assignState by viewModel.assignAdminState.collectAsState()
-    var adminEmail by remember {
-        mutableStateOf(madrasa.pendingAdminEmails.firstOrNull().orEmpty())
-    }
+    var adminEmailsInput by remember { mutableStateOf("") }
 
     LaunchedEffect(assignState) {
         if (assignState is Resource.Success) {
             viewModel.resetAssignAdminState()
-            onDismiss()
+            adminEmailsInput = ""
         }
     }
 
@@ -1341,38 +1339,133 @@ fun AssignMadrasaAdminDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 16.dp),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
             ) {
                 Text(
-                    text = "মাদরাসা অ্যাডমিন নিয়োগ / পরিবর্তন",
+                    text = "মাদরাসা অ্যাডমিন ব্যবস্থাপনা",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = EmeraldPrimary,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = madrasa.name,
+                    text = "${madrasa.name} (${madrasa.code})",
                     style = MaterialTheme.typography.bodyMedium,
                     color = HeritageGold,
                     fontWeight = FontWeight.Bold,
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Section 1: Current Assigned Admins List with Removal
+                Text(
+                    text = "বর্তমান অ্যাডমিনদের তালিকা:",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                val allAdmins = (madrasa.pendingAdminEmails.map { Pair(it, false) } +
+                    madrasa.adminUids.map { Pair(it, true) }).distinctBy { it.first }
+
+                if (allAdmins.isEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = "এখনও কোনো অ্যাডমিন নিয়োগ করা হয়নি। নিচে ইমেইল দিয়ে নিয়োগ করুন।",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        allAdmins.forEach { (identifier, isUid) ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = identifier,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Text(
+                                            text = if (isUid) "সক্রিয় অ্যাকাউন্ট (UID)" else "নিযুক্ত ইমেইল (Pending)",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isUid) EmeraldPrimary else HeritageGold,
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.removeAdminFromMadrasa(
+                                                madrasaId = madrasa.madrasaId,
+                                                adminEmailOrUid = identifier,
+                                                isUid = isUid,
+                                            )
+                                        },
+                                        modifier = Modifier.size(28.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "অপসারণ",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Section 2: Add New Admins (Support multiple comma-separated emails)
+                Text(
+                    text = "নতুন অ্যাডমিন নিয়োগ করুন (একাধিক সম্ভব):",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
 
                 OutlinedTextField(
-                    value = adminEmail,
-                    onValueChange = { adminEmail = it },
+                    value = adminEmailsInput,
+                    onValueChange = { adminEmailsInput = it },
                     label = { Text("অ্যাডমিনের ইমেইল *") },
-                    placeholder = { Text("admin@madrasa.org") },
+                    placeholder = { Text("admin1@mail.com, admin2@mail.com") },
+                    supportingText = {
+                        Text("কমা (,) দিয়ে একসাথে একাধিক অ্যাডমিনের ইমেইল লিখতে পারেন")
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     shape = RoundedCornerShape(10.dp),
                 )
 
@@ -1385,21 +1478,27 @@ fun AssignMadrasaAdminDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
                     TextButton(onClick = onDismiss) {
-                        Text("বাতিল")
+                        Text("সম্পন্ন")
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            viewModel.assignAdminToMadrasa(madrasa.madrasaId, adminEmail)
+                            val emails = adminEmailsInput
+                                .split(",", ";", "\n", " ")
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                            if (emails.isNotEmpty()) {
+                                viewModel.assignMultipleAdminsToMadrasa(madrasa.madrasaId, emails)
+                            }
                         },
-                        enabled = assignState !is Resource.Loading,
+                        enabled = assignState !is Resource.Loading && adminEmailsInput.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
                         shape = RoundedCornerShape(10.dp),
                     ) {
@@ -1409,7 +1508,7 @@ fun AssignMadrasaAdminDialog(
                                 color = MaterialTheme.colorScheme.onPrimary,
                             )
                         } else {
-                            Text("অ্যাডমিন নিশ্চিত করুন")
+                            Text("অ্যাডমিন যোগ করুন")
                         }
                     }
                 }

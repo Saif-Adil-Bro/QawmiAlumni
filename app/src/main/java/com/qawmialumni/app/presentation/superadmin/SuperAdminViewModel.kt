@@ -112,9 +112,27 @@ class SuperAdminViewModel @Inject constructor(
         madrasaId: String,
         adminEmail: String,
     ) {
+        assignMultipleAdminsToMadrasa(madrasaId, listOf(adminEmail))
+    }
+
+    fun assignMultipleAdminsToMadrasa(
+        madrasaId: String,
+        adminEmails: List<String>,
+    ) {
         viewModelScope.launch {
             _assignAdminState.value = Resource.Loading
-            _assignAdminState.value = adminRepository.assignMadrasaAdminEmail(madrasaId, adminEmail)
+            _assignAdminState.value = adminRepository.assignMultipleMadrasaAdminEmails(madrasaId, adminEmails)
+        }
+    }
+
+    fun removeAdminFromMadrasa(
+        madrasaId: String,
+        adminEmailOrUid: String,
+        isUid: Boolean,
+    ) {
+        viewModelScope.launch {
+            _assignAdminState.value = Resource.Loading
+            _assignAdminState.value = adminRepository.removeMadrasaAdmin(madrasaId, adminEmailOrUid, isUid)
         }
     }
 
