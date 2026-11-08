@@ -63,15 +63,36 @@ import com.qawmialumni.app.presentation.theme.HeritageGoldLight
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.imeNestedScroll
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 
 @Composable
 fun ChatListScreen(
     viewModel: ChatViewModel = hiltViewModel(),
+    onRoomActiveChange: (Boolean) -> Unit = {},
 ) {
     val roomsResource by viewModel.chatRooms.collectAsState()
     val session by viewModel.dataStore.userSession.collectAsState(initial = null)
 
     var activeRoomForChat by remember { mutableStateOf<ChatRoom?>(null) }
+
+    LaunchedEffect(activeRoomForChat) {
+        onRoomActiveChange(activeRoomForChat != null)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onRoomActiveChange(false)
+        }
+    }
 
     AnimatedContent(
         targetState = activeRoomForChat,
@@ -238,6 +259,7 @@ fun ChatRoomCard(
 /**
  * Full-Page WhatsApp-Style Chat Screen (replaces the old popup dialog).
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FullPageChatRoomScreen(
     room: ChatRoom,
@@ -269,6 +291,7 @@ fun FullPageChatRoomScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(horizontal = 8.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -336,7 +359,8 @@ fun FullPageChatRoomScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 12.dp)
+                    .imeNestedScroll(),
                 contentPadding = PaddingValues(vertical = 14.dp),
                 reverseLayout = true,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -396,6 +420,9 @@ fun FullPageChatRoomScreen(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 4.dp,
             shadowElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
         ) {
             Row(
                 modifier = Modifier

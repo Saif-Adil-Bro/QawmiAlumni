@@ -97,12 +97,22 @@ import com.qawmialumni.app.presentation.components.ModernEmptyState
 import com.qawmialumni.app.presentation.components.QawmiIcons
 import com.qawmialumni.app.presentation.components.VerifiedBadge
 import com.qawmialumni.app.presentation.theme.EmeraldPrimary
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.imeNestedScroll
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.DisposableEffect
 import com.qawmialumni.app.presentation.theme.HeritageGold
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ForumFeedScreen(
     viewModel: ForumViewModel = hiltViewModel(),
+    onDetailActiveChange: (Boolean) -> Unit = {},
 ) {
     val postsResource by viewModel.posts.collectAsState()
     val isGlobalScope by viewModel.isGlobalScope.collectAsState()
@@ -122,6 +132,16 @@ fun ForumFeedScreen(
     val currentPosts = (postsResource as? Resource.Success)?.data.orEmpty()
     val activeDetailPost = remember(selectedPostIdForDetail, currentPosts) {
         currentPosts.firstOrNull { it.postId == selectedPostIdForDetail }
+    }
+
+    LaunchedEffect(activeDetailPost) {
+        onDetailActiveChange(activeDetailPost != null)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onDetailActiveChange(false)
+        }
     }
 
     androidx.compose.animation.AnimatedContent(
@@ -592,6 +612,7 @@ fun ForumSummaryCard(
  * FULL-PAGE Forum Post Detail Screen with Facebook / Instagram-style inline comments
  * and a sticky bottom comment composer bar.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ForumPostDetailScreen(
     post: ForumPost,
@@ -626,6 +647,7 @@ fun ForumPostDetailScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -682,7 +704,8 @@ fun ForumPostDetailScreen(
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .imeNestedScroll(),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
             // Item 1: Full Post Article
@@ -966,6 +989,9 @@ fun ForumPostDetailScreen(
         Surface(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 4.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
         ) {
             Column {
                 HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))

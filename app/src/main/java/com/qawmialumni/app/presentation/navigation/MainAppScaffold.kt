@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -31,6 +33,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -85,10 +88,14 @@ fun MainAppScaffold(
     albumViewModel: AlbumViewModel = hiltViewModel(),
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var isChatRoomOpen by remember { mutableStateOf(false) }
+    var isForumDetailOpen by remember { mutableStateOf(false) }
     var showSelfProfileDialog by remember { mutableStateOf(false) }
     var showNotificationSettingsDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val session by albumViewModel.session.collectAsState()
+
+    val hideScaffoldChrome = (selectedTab == 3 && isChatRoomOpen) || (selectedTab == 1 && isForumDetailOpen)
 
     LaunchedEffect(Unit) {
         albumViewModel.notificationHelper.inAppNotifications.collect { inApp ->
@@ -106,7 +113,8 @@ fun MainAppScaffold(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            if (!hideScaffoldChrome) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                 TopAppBar(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -203,124 +211,129 @@ fun MainAppScaffold(
                 )
                 HorizontalDivider(thickness = 1.5.dp, color = HeritageGold.copy(alpha = 0.45f))
             }
+        }
         },
         bottomBar = {
-            Column {
-                HorizontalDivider(
-                    thickness = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                )
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 4.dp,
-                ) {
-                    val navColors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = EmeraldDeep,
-                        selectedTextColor = EmeraldPrimary,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        indicatorColor = HeritageGold.copy(alpha = 0.22f),
+            if (!hideScaffoldChrome) {
+                Column {
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
                     )
-                    NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        icon = {
-                            Icon(
-                                imageVector = QawmiIcons.KitabBook,
-                                contentDescription = "অ্যালবাম",
-                                modifier = Modifier.size(22.dp),
-                            )
-                        },
-                        label = {
-                            Text(
-                                "অ্যালবাম",
-                                fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
-                            )
-                        },
-                        colors = navColors,
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        icon = {
-                            Icon(
-                                imageVector = QawmiIcons.ForumBubble,
-                                contentDescription = "ফোরাম",
-                                modifier = Modifier.size(22.dp),
-                            )
-                        },
-                        label = {
-                            Text(
-                                "ফোরাম",
-                                fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
-                            )
-                        },
-                        colors = navColors,
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        icon = {
-                            Icon(
-                                imageVector = QawmiIcons.NoticeCampaign,
-                                contentDescription = "নোটিশ",
-                                modifier = Modifier.size(22.dp),
-                            )
-                        },
-                        label = {
-                            Text(
-                                "নোটিশ",
-                                fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
-                            )
-                        },
-                        colors = navColors,
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 3,
-                        onClick = { selectedTab = 3 },
-                        icon = {
-                            Icon(
-                                imageVector = QawmiIcons.ChatMessage,
-                                contentDescription = "চ্যাট",
-                                modifier = Modifier.size(22.dp),
-                            )
-                        },
-                        label = {
-                            Text(
-                                "চ্যাট",
-                                fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Medium,
-                            )
-                        },
-                        colors = navColors,
-                    )
-                    if (showAdminTab) {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 4.dp,
+                    ) {
+                        val navColors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = EmeraldDeep,
+                            selectedTextColor = EmeraldPrimary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            indicatorColor = HeritageGold.copy(alpha = 0.22f),
+                        )
                         NavigationBarItem(
-                            selected = selectedTab == 4,
-                            onClick = { selectedTab = 4 },
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
                             icon = {
                                 Icon(
-                                    imageVector = QawmiIcons.AdminShield,
-                                    contentDescription = "অ্যাডমিন",
+                                    imageVector = QawmiIcons.KitabBook,
+                                    contentDescription = "অ্যালবাম",
                                     modifier = Modifier.size(22.dp),
                                 )
                             },
                             label = {
                                 Text(
-                                    "অ্যাডমিন",
-                                    fontWeight = if (selectedTab == 4) FontWeight.Bold else FontWeight.Medium,
+                                    "অ্যালবাম",
+                                    fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
                                 )
                             },
                             colors = navColors,
                         )
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            icon = {
+                                Icon(
+                                    imageVector = QawmiIcons.ForumBubble,
+                                    contentDescription = "ফোরাম",
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            },
+                            label = {
+                                Text(
+                                    "ফোরাম",
+                                    fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                )
+                            },
+                            colors = navColors,
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            icon = {
+                                Icon(
+                                    imageVector = QawmiIcons.NoticeCampaign,
+                                    contentDescription = "নোটিশ",
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            },
+                            label = {
+                                Text(
+                                    "নোটিশ",
+                                    fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
+                                )
+                            },
+                            colors = navColors,
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
+                            icon = {
+                                Icon(
+                                    imageVector = QawmiIcons.ChatMessage,
+                                    contentDescription = "চ্যাট",
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            },
+                            label = {
+                                Text(
+                                    "চ্যাট",
+                                    fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Medium,
+                                )
+                            },
+                            colors = navColors,
+                        )
+                        if (showAdminTab) {
+                            NavigationBarItem(
+                                selected = selectedTab == 4,
+                                onClick = { selectedTab = 4 },
+                                icon = {
+                                    Icon(
+                                        imageVector = QawmiIcons.AdminShield,
+                                        contentDescription = "অ্যাডমিন",
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        "অ্যাডমিন",
+                                        fontWeight = if (selectedTab == 4) FontWeight.Bold else FontWeight.Medium,
+                                    )
+                                },
+                                colors = navColors,
+                            )
+                        }
                     }
                 }
             }
         },
+        contentWindowInsets = if (hideScaffoldChrome) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
     ) { innerPadding ->
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding),
             color = MaterialTheme.colorScheme.background,
         ) {
             androidx.compose.animation.AnimatedContent(
@@ -342,9 +355,9 @@ fun MainAppScaffold(
             ) { tab ->
                 when (tab) {
                     0 -> AlbumDirectoryScreen(showStaffTools = showStaffTools, viewModel = albumViewModel)
-                    1 -> ForumFeedScreen()
+                    1 -> ForumFeedScreen(onDetailActiveChange = { isForumDetailOpen = it })
                     2 -> NoticeBoardScreen()
-                    3 -> ChatListScreen()
+                    3 -> ChatListScreen(onRoomActiveChange = { isChatRoomOpen = it })
                     4 -> if (showAdminTab) MadrasaAdminPanel()
                 }
             }
