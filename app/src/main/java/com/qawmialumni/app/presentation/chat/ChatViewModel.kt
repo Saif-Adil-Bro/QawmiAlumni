@@ -30,10 +30,7 @@ class ChatViewModel @Inject constructor(
     private val communityRepository: CommunityRepository,
     val dataStore: UserPreferencesDataStore,
     private val alumniDao: AlumniDao,
-    private val notificationHelper: com.qawmialumni.app.core.notification.NotificationHelper,
 ) : ViewModel() {
-
-    private val seenRoomTimestamps = mutableMapOf<String, Long>()
 
     val chatRooms: StateFlow<Resource<List<ChatRoom>>> = dataStore.userSession
         .flatMapLatest { session ->
@@ -49,31 +46,9 @@ class ChatViewModel @Inject constructor(
             initialValue = Resource.Loading,
         )
 
-    init {
-        viewModelScope.launch {
-            chatRooms.collect { res ->
-                if (res is Resource.Success) {
-                    val currentUid = runCatching { dataStore.userSession.first().uid }.getOrDefault("")
-                    res.data.forEach { room ->
-                        val lastSeen = seenRoomTimestamps[room.roomId]
-                        if (lastSeen != null && room.lastTimestamp > lastSeen) {
-                            val lastMsg = room.recentMessages.lastOrNull()
-                            if (lastMsg != null && lastMsg.senderId != currentUid && currentUid.isNotBlank()) {
-                                val otherName = room.participantNames.entries.firstOrNull { it.key != currentUid }?.value
-                                    ?: "সহপাঠী"
-                                notificationHelper.showChatMessageNotification(
-                                    senderName = otherName,
-                                    messageText = lastMsg.text,
-                                    roomId = room.roomId,
-                                )
-                            }
-                        }
-                        seenRoomTimestamps[room.roomId] = room.lastTimestamp
-                    }
-                }
-            }
-        }
-    }
+    // NOTE: incoming messages are no longer detected by diffing chat timestamps in the
+    // sender's process (that notified the sender himself). Delivery is handled centrally by
+    // NotificationHelper's recipient-addressed Firestore listener.
 
     fun observeRoom(roomId: String): StateFlow<Resource<ChatRoom>> {
         return communityRepository.observeChatRoom(roomId)
@@ -93,7 +68,7 @@ class ChatViewModel @Inject constructor(
     ) {
         if (text.isBlank()) return
         viewModelScope.launch {
-            val session = dataStore.userSession.stateIn(viewModelScope).value
+            val session = dataStore.userSession.first()
             communityRepository.sendMessage(
                 roomId = roomId,
                 madrasaId = session.madrasaId,

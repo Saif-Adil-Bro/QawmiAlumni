@@ -6,6 +6,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
 import com.qawmialumni.app.core.network.ImageUploadRepository
+import com.qawmialumni.app.core.notification.NotificationHelper
 import com.qawmialumni.app.core.util.ImageTarget
 import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.data.local.dao.AlumniDao
@@ -30,6 +31,7 @@ class AlumniRepositoryImpl @Inject constructor(
     private val alumniDao: AlumniDao,
     private val imageUploadRepository: ImageUploadRepository,
     private val dataStore: UserPreferencesDataStore,
+    private val notificationHelper: NotificationHelper,
 ) : AlumniRepository {
 
     override fun getAlumni(
@@ -239,6 +241,21 @@ class AlumniRepositoryImpl @Inject constructor(
                             )
                         ).await()
                 }
+            }
+
+            // A profile change must alert the ADMINISTRATION (madrasa admin + super admin),
+            // never the person who edited it.
+            runCatching {
+                notificationHelper.publishAdminNotification(
+                    madrasaId = updatedProfile.madrasaId,
+                    actorUid = updatedProfile.uid,
+                    actorName = updatedProfile.name,
+                    title = "প্রোফাইল হালনাগাদ হয়েছে",
+                    message = "${updatedProfile.name.ifBlank { "একজন সদস্য" }} নিজের প্রোফাইল তথ্য পরিবর্তন করেছেন" +
+                        (if (newPhotoUri != null) " (নতুন ছবি সহ)।" else "।"),
+                    targetId = updatedProfile.uid,
+                    includeSuperAdmins = true,
+                )
             }
 
             Resource.Success(updatedProfile)

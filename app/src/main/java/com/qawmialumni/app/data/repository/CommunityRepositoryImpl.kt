@@ -144,10 +144,15 @@ class CommunityRepositoryImpl @Inject constructor(
                     )
                 )
                 if (post != null) {
-                    notificationHelper.showForumPostNotification(
-                        title = post.title,
-                        authorName = post.authorName,
-                        postId = postId,
+                    // The post owner gets the moderation result, not the approver.
+                    notificationHelper.publishDirectNotification(
+                        recipientUid = post.authorUid,
+                        actorUid = session.uid,
+                        actorName = session.name.ifBlank { "সুপার অ্যাডমিন" },
+                        title = "✅ আপনার ফোরাম পোস্ট অনুমোদিত হয়েছে",
+                        message = post.title,
+                        targetId = postId,
+                        type = com.qawmialumni.app.core.notification.NotificationType.FORUM,
                     )
                 }
             }
@@ -232,9 +237,12 @@ class CommunityRepositoryImpl @Inject constructor(
                 )
 
                 if (finalPost.approvalStatus == VerificationStatus.APPROVED) {
-                    notificationHelper.showForumPostNotification(
-                        title = finalPost.title,
+                    // Notify the community (everyone except the author) — not the author himself.
+                    notificationHelper.publishForumNotification(
+                        madrasaId = finalPost.madrasaId,
+                        authorUid = finalPost.authorUid.ifBlank { session.uid },
                         authorName = finalPost.authorName,
+                        title = finalPost.title,
                         postId = postId,
                     )
                 }
@@ -493,9 +501,15 @@ class CommunityRepositoryImpl @Inject constructor(
                 roomRef.set(roomData, SetOptions.merge()).await()
             }
 
+            // IMPORTANT: the actor's own device must NOT notify itself — a self-generated
+            // local notification could never reach the other phone. Publish a
+            // recipient-addressed notification instead, which the recipient's device
+            // picks up from the `notifications` collection listener.
             runCatching {
-                notificationHelper.showChatMessageNotification(
+                notificationHelper.publishChatNotification(
+                    senderUid = senderId,
                     senderName = senderName,
+                    recipientUid = recipientId,
                     messageText = text.trim(),
                     roomId = roomId,
                 )

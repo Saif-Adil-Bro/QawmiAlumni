@@ -33,6 +33,38 @@ A high-performance, ultra-slim (<8MB APK), and modern Native Android Application
 
 ---
 
+## 🔔 Notification Delivery Model (recipient-addressed)
+
+Notifications **never** fire on the device that performs the action. A message, notice, forum
+post or self-profile edit notifies **the other party** — not the author.
+
+1. **Publish (actor's device):** one `notifications/{id}` Firestore document is written per
+   recipient, with `recipientUid`, `senderUid`, `type`, `title`, `message`, `targetId`,
+   `createdAt`, `isRead`. The actor's own uid is filtered out before writing.
+2. **Deliver (recipient's device):** every signed-in device listens to
+   `notifications.whereEqualTo("recipientUid", myUid)` (a single-field filter — no composite
+   index and no Cloud Functions required on the free Spark plan) and raises the in-app
+   banner + system push only for documents addressed to it.
+3. **Routing rules**
+
+| Action | Who gets notified |
+| :--- | :--- |
+| Send a chat message | The other participant of that room only |
+| Publish a notice | Every approved member of that madrasa (author excluded) |
+| Publish an approved forum post | Madrasa members (global forum → all users) + super admins, author excluded |
+| Approve / reject a join request, change a role | The affected member |
+| Member edits own profile / adds a photo | Madrasa admins **and** super admins (member excluded) |
+| Madrasa admin submits an info-change request | Super admins (requester excluded) |
+| Super admin approves / rejects that request | The requesting madrasa admin |
+
+`NotificationHelper.bindUser(uid)` is bound to the DataStore session in `QawmiAlumniApp`, so
+switching account re-binds delivery and `signOut()` wipes the local list — this prevents both
+"my own message notifying me" and cross-account notification leaks. Firestore rules in
+`firestore.rules` allow `create` only for a *different* recipient, and `read/update/delete`
+only for the recipient.
+
+---
+
 ## 🏗️ Architecture & Tech Stack
 
 - **UI:** 100% Jetpack Compose (Material 3) — Single-Activity Architecture (`MainActivity.kt`)
