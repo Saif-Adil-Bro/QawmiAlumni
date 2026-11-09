@@ -65,6 +65,28 @@ only for the recipient.
 
 ---
 
+## 💬 Chat: WhatsApp-style ticks & message deletion
+
+1. **Optimistic sending** — pressing send adds the bubble instantly with a spinning
+   *sending* indicator (`ChatViewModel.pendingMessages`), no waiting for the network.
+2. **Tick ladder** — resolved by `ChatRoom.tickStatusFor(message, peerUid)`:
+
+   | Indicator | Meaning | Written by |
+   | :--- | :--- | :--- |
+   | ⏳ clock | SENDING — not yet acknowledged by Firestore | local optimistic state |
+   | ✓ grey | SENT — message written to `chat_rooms/{id}` | sender's device |
+   | ✓✓ grey | DELIVERED — peer's device synced the room | `lastDeliveredAt.<peerUid>` |
+   | ✓✓ blue | READ — peer opened the conversation | `lastReadAt.<peerUid>` |
+
+   Both watermarks live on the room document, so the ticks survive app restarts and are
+   visible to both participants without extra reads.
+3. **Delete message** — long-press your own bubble → *সবার জন্য মুছে ফেলুন*. The message is
+   soft-deleted (`isDeleted = true`, text cleared) so the timeline keeps its shape and the
+   peer sees "এই বার্তাটি মুছে ফেলা হয়েছে". Only the sender can delete (enforced in UI and in
+   the repository). Long-press also offers *কপি করুন*.
+
+---
+
 ## 🏗️ Architecture & Tech Stack
 
 - **UI:** 100% Jetpack Compose (Material 3) — Single-Activity Architecture (`MainActivity.kt`)

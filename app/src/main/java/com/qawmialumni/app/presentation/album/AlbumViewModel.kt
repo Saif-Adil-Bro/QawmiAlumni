@@ -279,6 +279,8 @@ class AlbumViewModel @Inject constructor(
                 senderPhoto = currentSession.photoUrl,
                 recipientPhoto = targetAlumni.photoUrl,
                 text = messageText.trim(),
+                messageId = java.util.UUID.randomUUID().toString(),
+                timestamp = System.currentTimeMillis(),
             )
             onSent()
         }

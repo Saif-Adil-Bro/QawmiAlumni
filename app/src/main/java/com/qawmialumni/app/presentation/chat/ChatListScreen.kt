@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
@@ -51,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -73,7 +75,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.qawmialumni.app.core.util.Resource
+import com.qawmialumni.app.domain.model.ChatMessage
 import com.qawmialumni.app.domain.model.ChatRoom
+import com.qawmialumni.app.domain.model.MessageStatus
 import com.qawmialumni.app.domain.model.UserProfile
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.presentation.components.AvatarWithRing
@@ -92,6 +96,7 @@ fun ChatListScreen(
 ) {
     val roomsResource by viewModel.chatRooms.collectAsState()
     val session by viewModel.dataStore.userSession.collectAsState(initial = null)
+    val context = LocalContext.current
 
     var activeRoomForChat by remember { mutableStateOf<ChatRoom?>(null) }
 
@@ -149,14 +154,18 @@ fun ChatListScreen(
             val otherName = room.participantNames[otherUid] ?: "সাথী"
             val otherPhoto = room.participantPhotos[otherUid] ?: ""
 
+            val openRoom = room
             FullPageChatRoomScreen(
-                room = room,
+                room = openRoom,
                 currentUid = currentUid,
                 otherUid = otherUid,
                 otherName = otherName,
                 otherPhoto = otherPhoto,
                 viewModel = viewModel,
                 onBack = { activeRoomForChat = null },
+                onShowSnackbar = { message ->
+                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                },
             )
         } else {
             when (val res = roomsResource) {
@@ -186,13 +195,13 @@ fun ChatListScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(res.data, key = { it.roomId }) { room ->
-                        val otherUid = room.participants.firstOrNull { it != session?.uid } ?: ""
-                        val otherName = room.participantNames[otherUid] ?: "সাথী"
-                        val otherPhoto = room.participantPhotos[otherUid] ?: ""
+                        val listOtherUid = room.participants.firstOrNull { it != session?.uid } ?: ""
+                        val listOtherName = room.participantNames[listOtherUid] ?: "সাথী"
+                        val listOtherPhoto = room.participantPhotos[listOtherUid] ?: ""
 
                         ChatRoomCard(
-                            name = otherName,
-                            photoUrl = otherPhoto,
+                            name = listOtherName,
+                            photoUrl = listOtherPhoto,
                             lastMessage = room.lastMessage,
                             messageCount = room.recentMessages.size,
                             onClick = { activeRoomForChat = room },
@@ -289,6 +298,7 @@ fun FullPageChatRoomScreen(
     otherPhoto: String,
     viewModel: ChatViewModel,
     onBack: () -> Unit,
+    onShowSnackbar: (String) -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
 
@@ -298,6 +308,28 @@ fun FullPageChatRoomScreen(
     val userProfile by viewModel.getUserProfile(otherUid).collectAsState(initial = null)
 
     val liveRoom = (roomResource as? Resource.Success)?.data ?: room
+    val context = LocalContext.current
+    val pendingByRoom by viewModel.pendingMessages.collectAsState()
+    val pendingList = pendingByRoom[room.roomId].orEmpty()
+
+    var actionTarget by remember { mutableStateOf<ChatMessage?>(null) }
+
+    // The room document is on this device → mark DELIVERED (double grey tick for the peer),
+    // and, because the room is open, also READ (blue tick).
+    LaunchedEffect(liveRoom.lastTimestamp, currentUid) {
+        if (liveRoom.roomId.isNotBlank() && currentUid.isNotBlank()) {
+            viewModel.markRoomDelivered(liveRoom.roomId, currentUid)
+            if (liveRoom.recentMessages.any { it.senderId != currentUid }) {
+                viewModel.markRoomRead(liveRoom.roomId, currentUid)
+            }
+        }
+    }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(liveRoom.recentMessages.size, pendingList.size) {
+        if (liveRoom.recentMessages.isNotEmpty()) {
+            runCatching { listState.animateScrollToItem(0) }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -366,7 +398,7 @@ fun FullPageChatRoomScreen(
         }
 
         // Full-Screen Scrollable Message Area
-        if (liveRoom.recentMessages.isEmpty()) {
+        if (liveRoom.recentMessages.isEmpty() && pendingList.isEmpty()) {
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -389,6 +421,7 @@ fun FullPageChatRoomScreen(
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -396,51 +429,37 @@ fun FullPageChatRoomScreen(
                     .imeNestedScroll(),
                 contentPadding = PaddingValues(vertical = 14.dp),
                 reverseLayout = true,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                items(liveRoom.recentMessages.reversed()) { msg ->
+                // Still-uploading messages first (they live at the visual bottom).
+                items(pendingList.reversed(), key = { it.messageId }) { msg ->
+                    ChatMessageBubble(
+                        message = msg,
+                        isMe = true,
+                        tickStatus = MessageStatus.SENDING,
+                        onLongPress = {},
+                    )
+                }
+                items(
+                    liveRoom.recentMessages.reversed(),
+                    key = { it.messageId.ifBlank { it.senderId + "_" + it.timestamp } },
+                ) { msg ->
                     val isMe = msg.senderId == currentUid
+                    ChatMessageBubble(
+                        message = msg,
+                        isMe = isMe,
+                        tickStatus = if (isMe) liveRoom.tickStatusFor(msg, otherUid) else MessageStatus.READ,
+                        onLongPress = {
+                            if (isMe && !msg.isDeletedPlaceholder) actionTarget = msg
+                        },
+                    )
+                }
+                item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
+                        horizontalArrangement = Arrangement.Center,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .widthIn(max = 300.dp)
-                                .clip(
-                                    RoundedCornerShape(
-                                        topStart = 16.dp,
-                                        topEnd = 16.dp,
-                                        bottomStart = if (isMe) 16.dp else 4.dp,
-                                        bottomEnd = if (isMe) 4.dp else 16.dp,
-                                    )
-                                )
-                                .background(if (isMe) EmeraldPrimary else MaterialTheme.colorScheme.surface)
-                                .then(
-                                    if (!isMe) {
-                                        Modifier.border(
-                                            1.dp,
-                                            MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                                            RoundedCornerShape(
-                                                topStart = 16.dp,
-                                                topEnd = 16.dp,
-                                                bottomStart = 4.dp,
-                                                bottomEnd = 16.dp,
-                                            ),
-                                        )
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                        ) {
-                            Text(
-                                text = msg.text,
-                                color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                            )
-                        }
+                        ChatTickLegend()
                     }
                 }
             }
@@ -481,6 +500,7 @@ fun FullPageChatRoomScreen(
                                 recipientName = otherName,
                                 recipientPhoto = otherPhoto,
                                 text = messageText,
+                                onSendFailed = onShowSnackbar,
                             )
                             messageText = ""
                         }
@@ -509,6 +529,115 @@ fun FullPageChatRoomScreen(
             profile = userProfile,
             onDismiss = { showUserProfileSheet = false },
         )
+    }
+
+    // Long-press message actions (copy / delete for everyone).
+    actionTarget?.let { target ->
+        MessageActionBottomSheet(
+            message = target,
+            onCopy = {
+                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                    as? android.content.ClipboardManager
+                clipboard?.setPrimaryClip(
+                    android.content.ClipData.newPlainText("বার্তা", target.text)
+                )
+                actionTarget = null
+                onShowSnackbar("বার্তা কপি করা হয়েছে")
+            },
+            onDelete = {
+                actionTarget = null
+                viewModel.deleteMessage(liveRoom.roomId, target.messageId, target.timestamp) { result ->
+                    onShowSnackbar(
+                        if (result is Resource.Error) {
+                            result.message
+                        } else {
+                            "বার্তাটি সবার জন্য মুছে ফেলা হয়েছে"
+                        }
+                    )
+                }
+            },
+            onDismiss = { actionTarget = null },
+        )
+    }
+}
+
+/**
+ * WhatsApp-style long-press action sheet for a single message.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageActionBottomSheet(
+    message: ChatMessage,
+    onCopy: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                text = "বার্তা",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = message.text,
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            TextButton(
+                onClick = onCopy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "কপি করুন",
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                )
+            }
+            TextButton(
+                onClick = onDelete,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    "সবার জন্য মুছে ফেলুন",
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                )
+            }
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text("বাতিল")
+            }
+        }
     }
 }
 

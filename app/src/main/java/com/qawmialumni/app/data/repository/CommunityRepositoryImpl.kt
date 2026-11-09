@@ -15,6 +15,7 @@ import com.qawmialumni.app.data.remote.dto.PostCommentDto
 import com.qawmialumni.app.domain.model.ChatRoom
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
+import com.qawmialumni.app.domain.model.MessageStatus
 import com.qawmialumni.app.domain.model.PostComment
 import com.qawmialumni.app.domain.model.VerificationStatus
 import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
@@ -456,23 +457,33 @@ class CommunityRepositoryImpl @Inject constructor(
         senderPhoto: String,
         recipientPhoto: String,
         text: String,
+        messageId: String,
+        timestamp: Long,
     ): Resource<Unit> {
         return try {
-            val timestamp = System.currentTimeMillis()
-            val newMsg = ChatMessageDto(senderId = senderId, text = text.trim(), timestamp = timestamp)
+            val newMsg = ChatMessageDto(
+                messageId = messageId,
+                senderId = senderId,
+                text = text.trim(),
+                timestamp = timestamp,
+                status = MessageStatus.SENT.wireValue,
+                isDeleted = false,
+            )
 
             val roomRef = firestore.collection("chat_rooms").document(roomId)
             val existingDoc = runCatching { roomRef.get().await() }.getOrNull()
-            val existingMessages = existingDoc?.toObject(ChatRoomDto::class.java)?.recentMessages
-                ?: localChatRoomsFallback[roomId]?.recentMessages?.map {
-                    ChatMessageDto(senderId = it.senderId, text = it.text, timestamp = it.timestamp)
-                }
+            val existingDto = existingDoc?.toObject(ChatRoomDto::class.java)
+            val existingMessages = existingDto?.recentMessages
+                ?: localChatRoomsFallback[roomId]?.recentMessages?.map { ChatMessageDto.fromDomain(it) }
                 ?: emptyList()
-            val cappedMessages = (existingMessages + newMsg).takeLast(50)
+            // Never duplicate a message on retry.
+            val cappedMessages = (existingMessages.filter { it.messageId != messageId } + newMsg).takeLast(50)
 
             val participants = listOf(senderId, recipientId).distinct()
-            val participantNames = mapOf(senderId to senderName, recipientId to recipientName)
-            val participantPhotos = mapOf(senderId to senderPhoto, recipientId to recipientPhoto)
+            val participantNames = (existingDto?.participantNames.orEmpty()) +
+                mapOf(senderId to senderName, recipientId to recipientName)
+            val participantPhotos = (existingDto?.participantPhotos.orEmpty()) +
+                mapOf(senderId to senderPhoto, recipientId to recipientPhoto)
 
             val roomDto = ChatRoomDto(
                 roomId = roomId,
@@ -483,6 +494,8 @@ class CommunityRepositoryImpl @Inject constructor(
                 lastMessage = text.trim(),
                 lastTimestamp = timestamp,
                 recentMessages = cappedMessages,
+                lastReadAt = existingDto?.lastReadAt.orEmpty(),
+                lastDeliveredAt = existingDto?.lastDeliveredAt.orEmpty(),
             )
             localChatRoomsFallback[roomId] = roomDto.toDomain()
 
@@ -518,6 +531,110 @@ class CommunityRepositoryImpl @Inject constructor(
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "মেসেজ পাঠানো ব্যর্থ", e)
+        }
+    }
+
+    /**
+     * Writes the read receipt for [readerUid] — this is what turns the sender's ticks blue
+     * (WhatsApp style). Also refreshes the delivered watermark, because a room that has been
+     * opened has obviously been delivered as well.
+     */
+    override suspend fun markRoomRead(roomId: String, readerUid: String): Resource<Unit> {
+        if (roomId.isBlank() || readerUid.isBlank()) return Resource.Success(Unit)
+        val now = System.currentTimeMillis()
+        return try {
+            runCatching {
+                firestore.collection("chat_rooms").document(roomId)
+                    .set(
+                        mapOf(
+                            "lastReadAt.$readerUid" to now,
+                            "lastDeliveredAt.$readerUid" to now,
+                        ),
+                        SetOptions.merge(),
+                    )
+                    .await()
+            }
+            localChatRoomsFallback[roomId]?.let { cached ->
+                localChatRoomsFallback[roomId] = cached.copy(
+                    lastReadAt = cached.lastReadAt + (readerUid to now),
+                    lastDeliveredAt = cached.lastDeliveredAt + (readerUid to now),
+                )
+            }
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "পঠিত চিহ্নিতকরণ ব্যর্থ", e)
+        }
+    }
+
+    /**
+     * Delivered receipt: the recipient's device has fetched the room, so the sender's tick
+     * moves from single grey (sent) to double grey (delivered) before it turns blue.
+     */
+    override suspend fun markRoomDelivered(roomId: String, recipientUid: String): Resource<Unit> {
+        if (roomId.isBlank() || recipientUid.isBlank()) return Resource.Success(Unit)
+        val now = System.currentTimeMillis()
+        return try {
+            runCatching {
+                firestore.collection("chat_rooms").document(roomId)
+                    .set(mapOf("lastDeliveredAt.$recipientUid" to now), SetOptions.merge())
+                    .await()
+            }
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "ডেলিভারি চিহ্নিতকরণ ব্যর্থ", e)
+        }
+    }
+
+    /**
+     * Soft-deletes one message (WhatsApp "delete for everyone"): the bubble stays with a
+     * grey "এই বার্তাটি মুছে ফেলা হয়েছে" note, so the conversation timeline is not broken.
+     */
+    override suspend fun deleteMessage(
+        roomId: String,
+        messageId: String,
+        requesterUid: String,
+        messageTimestamp: Long,
+    ): Resource<Unit> {
+        return try {
+            val roomRef = firestore.collection("chat_rooms").document(roomId)
+            val existingDoc = runCatching { roomRef.get().await() }.getOrNull()
+            val roomDto = existingDoc?.toObject(ChatRoomDto::class.java)
+                ?: localChatRoomsFallback[roomId]?.let { ChatRoomDto.fromDomain(it) }
+                ?: return Resource.Error("চ্যাট রুম খুঁজে পাওয়া যায়নি")
+
+            val messages = roomDto.recentMessages.toMutableList()
+            val index = messages.indexOfFirst { it.messageId == messageId }
+                .takeIf { it >= 0 && messageId.isNotBlank() }
+                ?: messages.indexOfFirst { it.timestamp == messageTimestamp && it.senderId == requesterUid }
+            if (index < 0) return Resource.Error("বার্তাটি খুঁজে পাওয়া যায়নি")
+            val target = messages[index]
+            if (target.senderId != requesterUid) {
+                return Resource.Error("নিজের পাঠানো বার্তাই কেবল মুছে ফেলা যায়")
+            }
+
+            messages[index] = target.copy(text = "", isDeleted = true, status = MessageStatus.SENT.wireValue)
+            val lastVisible = messages.lastOrNull { !it.isDeleted }
+            val updatedRoom = roomDto.copy(
+                recentMessages = messages,
+                lastMessage = if (lastVisible == null) "" else lastVisible.text,
+                lastTimestamp = roomDto.lastTimestamp,
+                lastReadAt = roomDto.lastReadAt,
+                lastDeliveredAt = roomDto.lastDeliveredAt,
+            )
+            localChatRoomsFallback[roomId] = updatedRoom.toDomain()
+
+            runCatching {
+                roomRef.set(
+                    mapOf(
+                        "recentMessages" to updatedRoom.recentMessages,
+                        "lastMessage" to updatedRoom.lastMessage,
+                    ),
+                    SetOptions.merge(),
+                ).await()
+            }
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "বার্তা মুছে ফেলা ব্যর্থ", e)
         }
     }
 }
