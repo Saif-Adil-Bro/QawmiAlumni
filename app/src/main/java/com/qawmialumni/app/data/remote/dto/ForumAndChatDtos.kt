@@ -5,6 +5,7 @@ import com.qawmialumni.app.domain.model.ChatMessage
 import com.qawmialumni.app.domain.model.ChatRoom
 import com.qawmialumni.app.domain.model.ForumCategory
 import com.qawmialumni.app.domain.model.ForumPost
+import com.qawmialumni.app.domain.model.MessageStatus
 import com.qawmialumni.app.domain.model.PostComment
 import com.qawmialumni.app.domain.model.UserRole
 import com.qawmialumni.app.domain.model.VerificationStatus
@@ -108,21 +109,32 @@ data class PostCommentDto(
 
 @IgnoreExtraProperties
 data class ChatMessageDto(
+    var messageId: String = "",
     var senderId: String = "",
     var text: String = "",
     var timestamp: Long = 0L,
+    var status: String = MessageStatus.SENT.wireValue,
+    var isDeleted: Boolean = false,
 ) {
     fun toDomain(): ChatMessage = ChatMessage(
+        // Messages written before messageId was introduced have no id — derive a stable one
+        // so LazyColumn keys stay unique and delete can find the right bubble.
+        messageId = messageId.ifBlank { "LEGACY_${senderId}_$timestamp" },
         senderId = senderId,
         text = text,
         timestamp = timestamp,
+        status = MessageStatus.fromWire(status),
+        isDeleted = isDeleted,
     )
 
     companion object {
         fun fromDomain(msg: ChatMessage): ChatMessageDto = ChatMessageDto(
+            messageId = msg.messageId,
             senderId = msg.senderId,
             text = msg.text,
             timestamp = msg.timestamp,
+            status = msg.status.wireValue,
+            isDeleted = msg.isDeleted,
         )
     }
 }
@@ -137,6 +149,8 @@ data class ChatRoomDto(
     var lastMessage: String = "",
     var lastTimestamp: Long = 0L,
     var recentMessages: List<ChatMessageDto> = emptyList(),
+    var lastReadAt: Map<String, Long> = emptyMap(),
+    var lastDeliveredAt: Map<String, Long> = emptyMap(),
 ) {
     fun toDomain(): ChatRoom = ChatRoom(
         roomId = roomId,
@@ -147,6 +161,8 @@ data class ChatRoomDto(
         lastMessage = lastMessage,
         lastTimestamp = lastTimestamp,
         recentMessages = recentMessages.map { it.toDomain() },
+        lastReadAt = lastReadAt,
+        lastDeliveredAt = lastDeliveredAt,
     )
 
     companion object {
@@ -159,6 +175,8 @@ data class ChatRoomDto(
             lastMessage = room.lastMessage,
             lastTimestamp = room.lastTimestamp,
             recentMessages = room.recentMessages.map { ChatMessageDto.fromDomain(it) },
+            lastReadAt = room.lastReadAt,
+            lastDeliveredAt = room.lastDeliveredAt,
         )
     }
 }

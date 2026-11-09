@@ -6,6 +6,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.qawmialumni.app.core.datastore.UserPreferencesDataStore
+import com.qawmialumni.app.core.notification.NotificationHelper
 import com.qawmialumni.app.core.util.Resource
 import com.qawmialumni.app.data.remote.dto.MadrasaDto
 import com.qawmialumni.app.data.remote.dto.UserDto
@@ -28,6 +29,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val dataStore: UserPreferencesDataStore,
+    private val notificationHelper: NotificationHelper,
 ) : AuthRepository {
 
     override val currentUserId: String?
@@ -351,6 +353,19 @@ class AuthRepositoryImpl @Inject constructor(
                 .set(UserDto.fromDomain(pendingProfile), SetOptions.merge())
                 .await()
             dataStore.saveUserSession(pendingProfile)
+
+            // The applicant must NOT notify himself — the madrasa admins are the ones
+            // who need to know that a new join request is waiting for approval.
+            runCatching {
+                notificationHelper.publishAdminNotification(
+                    madrasaId = pendingProfile.madrasaId,
+                    actorUid = pendingProfile.uid,
+                    actorName = pendingProfile.name,
+                    title = "নতুন যোগদানের আবেদন",
+                    message = "${pendingProfile.name.ifBlank { "একজন সদস্য" }} মাদরাসার সাথে যুক্ত হতে আবেদন করেছেন।",
+                    targetId = pendingProfile.uid,
+                )
+            }
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "আবেদন সাবমিট করা যায়নি", e)

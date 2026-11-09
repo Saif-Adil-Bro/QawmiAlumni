@@ -63,5 +63,23 @@ interface CommunityRepository {
         senderPhoto: String,
         recipientPhoto: String,
         text: String,
+        /** Client-generated id so the UI can track sending → sent → delivered → read. */
+        messageId: String,
+        /** Client timestamp of the moment the user pressed send (drives tick ordering). */
+        timestamp: Long,
+    ): Resource<Unit>
+
+    /** Marks the conversation as read by [readerUid] (blue double ticks for the sender). */
+    suspend fun markRoomRead(roomId: String, readerUid: String): Resource<Unit>
+
+    /** Marks the conversation as delivered for [recipientUid] (double grey ticks). */
+    suspend fun markRoomDelivered(roomId: String, recipientUid: String): Resource<Unit>
+
+    /** Soft-deletes a single message sent by [requesterUid]. */
+    suspend fun deleteMessage(
+        roomId: String,
+        messageId: String,
+        requesterUid: String,
+        messageTimestamp: Long,
     ): Resource<Unit>
 }

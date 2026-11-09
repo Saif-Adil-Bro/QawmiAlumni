@@ -104,11 +104,37 @@ data class Notice(
     val createdAt: Long = 0L,
 )
 
+/**
+ * Delivery state of a single chat message (WhatsApp-style ticks).
+ *
+ * - [SENDING]   : handed to the repository, not yet acknowledged by Firestore
+ * - [SENT]      : written to Firestore (one grey tick)
+ * - [DELIVERED] : the recipient's device fetched the room containing it (two grey ticks)
+ * - [READ]      : the recipient opened the room / marked it read (two blue ticks)
+ */
+enum class MessageStatus(val wireValue: String) {
+    SENDING("sending"),
+    SENT("sent"),
+    DELIVERED("delivered"),
+    READ("read");
+
+    companion object {
+        fun fromWire(value: String?): MessageStatus =
+            entries.firstOrNull { it.wireValue.equals(value, ignoreCase = true) } ?: SENT
+    }
+}
+
 data class ChatMessage(
+    val messageId: String = "",
     val senderId: String = "",
     val text: String = "",
     val timestamp: Long = 0L,
-)
+    val status: MessageStatus = MessageStatus.SENT,
+    /** Soft delete — kept only long enough to render "এই বার্তাটি মুছে ফেলা হয়েছে". */
+    val isDeleted: Boolean = false,
+) {
+    val isDeletedPlaceholder: Boolean get() = isDeleted || text.isBlank()
+}
 
 data class ChatRoom(
     val roomId: String = "",
@@ -119,7 +145,28 @@ data class ChatRoom(
     val lastMessage: String = "",
     val lastTimestamp: Long = 0L,
     val recentMessages: List<ChatMessage> = emptyList(),
+    /** uid -> millis at which that participant last opened this room. */
+    val lastReadAt: Map<String, Long> = emptyMap(),
+    /** uid -> millis at which that participant's device last synced this room. */
+    val lastDeliveredAt: Map<String, Long> = emptyMap(),
 ) {
+    /** When [uid] last read this room (0 if never). */
+    fun lastReadAtOf(uid: String): Long = lastReadAt[uid] ?: 0L
+
+    /** When [uid]'s device last received this room's messages (0 if never). */
+    fun lastDeliveredAtOf(uid: String): Long = lastDeliveredAt[uid] ?: 0L
+
+    /**
+     * WhatsApp tick state of [message] as seen by the user who sent it.
+     * READ wins over DELIVERED which wins over SENT.
+     */
+    fun tickStatusFor(message: ChatMessage, peerUid: String): MessageStatus {
+        if (message.status == MessageStatus.SENDING) return MessageStatus.SENDING
+        if (lastReadAtOf(peerUid) >= message.timestamp) return MessageStatus.READ
+        if (lastDeliveredAtOf(peerUid) >= message.timestamp) return MessageStatus.DELIVERED
+        return if (message.status == MessageStatus.READ) MessageStatus.READ else MessageStatus.SENT
+    }
+
     companion object {
         /** Deterministic roomId so two users always share one unique conversation bucket. */
         fun buildRoomId(uid1: String, uid2: String): String =

@@ -415,6 +415,16 @@ class AdminRepositoryImpl @Inject constructor(
                         details = "ফারেগীন স্টুডেন্ট প্রোফাইল সফলভাবে অনুমোদন করা হয়েছে",
                     )
                 )
+
+                notificationHelper.publishDirectNotification(
+                    recipientUid = userId,
+                    actorUid = session.uid,
+                    actorName = session.name.ifBlank { "মাদরাসা অ্যাডমিন" },
+                    title = "✅ আপনার প্রোফাইল অনুমোদিত হয়েছে",
+                    message = "আলহামদুলিল্লাহ, মাদরাসা কর্তৃপক্ষ আপনার প্রোফাইল অনুমোদন করেছেন। এখন অ্যাপের অ্যালবাম ও ফোরামে অংশ নিতে পারবেন।",
+                    targetId = madrasaId,
+                    type = com.qawmialumni.app.core.notification.NotificationType.ADMIN,
+                )
             }
 
             Resource.Success(Unit)
@@ -445,6 +455,16 @@ class AdminRepositoryImpl @Inject constructor(
                         targetTitle = "ইউজার ($userId)",
                         details = "ফারেগীন যোগদানের আবেদন বাতিল/বাতিল ঘোষণা করা হয়েছে",
                     )
+                )
+
+                notificationHelper.publishDirectNotification(
+                    recipientUid = userId,
+                    actorUid = session.uid,
+                    actorName = session.name.ifBlank { "মাদরাসা অ্যাডমিন" },
+                    title = "আপনার যোগদানের আবেদন অনুমোদিত হয়নি",
+                    message = "মাদরাসা কর্তৃপক্ষ আপনার যোগদানের আবেদন বাতিল করেছেন। বিস্তারিত জানতে প্রশাসনের সাথে যোগাযোগ করুন।",
+                    targetId = session.madrasaId,
+                    type = com.qawmialumni.app.core.notification.NotificationType.ADMIN,
                 )
             }
 
@@ -498,6 +518,16 @@ class AdminRepositoryImpl @Inject constructor(
                         targetTitle = "ইউজার ($userId)",
                         details = "সদস্যের পদবী পরিবর্তন করা হয়েছে (${newRole.wireValue})",
                     )
+                )
+
+                notificationHelper.publishDirectNotification(
+                    recipientUid = userId,
+                    actorUid = session.uid,
+                    actorName = session.name.ifBlank { "মাদরাসা অ্যাডমিন" },
+                    title = "আপনার পদবী পরিবর্তন করা হয়েছে",
+                    message = "আপনার নতুন পদবী: ${newRole.banglaLabel}",
+                    targetId = madrasaId,
+                    type = com.qawmialumni.app.core.notification.NotificationType.ADMIN,
                 )
             }
 
@@ -608,9 +638,12 @@ class AdminRepositoryImpl @Inject constructor(
                         details = "নতুন নোটিশ বা দস্তারবন্দী সংক্রান্ত ঘোষণা জারি করা হয়েছে",
                     )
                 )
-                notificationHelper.showNoticeNotification(
+                // Notify the madrasa community — the author is excluded inside the helper.
+                notificationHelper.publishNoticeNotification(
+                    madrasaId = finalNotice.madrasaId.ifBlank { session.madrasaId },
+                    authorUid = session.uid,
+                    authorName = session.name.ifBlank { "মাদরাসা প্রশাসন" },
                     title = finalNotice.title,
-                    madrasaName = session.name.ifBlank { "মাদরাসা" },
                     noticeId = noticeId,
                 )
             }
@@ -768,11 +801,20 @@ class AdminRepositoryImpl @Inject constructor(
                 )
             }
 
-            notificationHelper.showNoticeNotification(
-                title = "মাদরাসার তথ্য পরিবর্তনের আবেদন সফলভাবে সুপার অ্যাডমিনের কাছে পাঠানো হয়েছে।",
-                madrasaName = "তথ্য সংশোধন",
-                noticeId = reqId,
-            )
+            runCatching {
+                val session = userPreferencesDataStore.userSession.first()
+                // The request goes to the SUPER ADMIN, not to the requester's own device.
+                notificationHelper.publishAdminNotification(
+                    madrasaId = finalRequest.madrasaId,
+                    actorUid = session.uid,
+                    actorName = session.name.ifBlank { "মাদরাসা অ্যাডমিন" },
+                    title = "নতুন মাদরাসা তথ্য সংশোধনের আবেদন",
+                    message = "${finalRequest.requestedByName.ifBlank { session.name }} — " +
+                        "${finalRequest.requestedName.ifBlank { finalRequest.currentName }} (কোড: ${finalRequest.madrasaCode})",
+                    targetId = reqId,
+                    includeSuperAdmins = true,
+                )
+            }
 
             Resource.Success(finalRequest)
         } catch (e: Exception) {
@@ -874,11 +916,27 @@ class AdminRepositoryImpl @Inject constructor(
                 )
             }
 
-            notificationHelper.showNoticeNotification(
-                title = "মাদরাসা [${request.requestedName.ifBlank { request.currentName }}]-এর তথ্য পরিবর্তনের আবেদন অনুমোদিত হয়েছে।",
-                madrasaName = "অনুমোদিত",
-                noticeId = targetMadrasaId,
-            )
+            runCatching {
+                val superSession = userPreferencesDataStore.userSession.first()
+                val recipient = request.requestedByUid.ifBlank {
+                    firestore.collection("users")
+                        .whereEqualTo("madrasaId", targetMadrasaId)
+                        .get().await().documents
+                        .firstOrNull { it.getString("role") == UserRole.MADRASA_ADMIN.wireValue }
+                        ?.id.orEmpty()
+                }
+                if (recipient.isNotBlank()) {
+                    notificationHelper.publishDirectNotification(
+                        recipientUid = recipient,
+                        actorUid = superSession.uid,
+                        actorName = superSession.name.ifBlank { "সুপার অ্যাডমিন" },
+                        title = "✅ মাদরাসার তথ্য সংশোধনের আবেদন অনুমোদিত হয়েছে",
+                        message = "${request.requestedName.ifBlank { request.currentName }} — আপনার আবেদন অনুমোদিত হয়েছে।",
+                        targetId = targetMadrasaId,
+                        type = com.qawmialumni.app.core.notification.NotificationType.ADMIN,
+                    )
+                }
+            }
 
             Resource.Success(Unit)
         } catch (e: Exception) {
@@ -926,11 +984,27 @@ class AdminRepositoryImpl @Inject constructor(
                 )
             }
 
-            notificationHelper.showNoticeNotification(
-                title = "মাদরাসার তথ্য পরিবর্তনের আবেদন বাতিল করা হয়েছে।",
-                madrasaName = "তথ্য সংশোধন",
-                noticeId = request.madrasaId,
-            )
+            runCatching {
+                val superSession = userPreferencesDataStore.userSession.first()
+                val recipient = request.requestedByUid.ifBlank {
+                    firestore.collection("users")
+                        .whereEqualTo("madrasaId", request.madrasaId)
+                        .get().await().documents
+                        .firstOrNull { it.getString("role") == UserRole.MADRASA_ADMIN.wireValue }
+                        ?.id.orEmpty()
+                }
+                if (recipient.isNotBlank()) {
+                    notificationHelper.publishDirectNotification(
+                        recipientUid = recipient,
+                        actorUid = superSession.uid,
+                        actorName = superSession.name.ifBlank { "সুপার অ্যাডমিন" },
+                        title = "মাদরাসার তথ্য সংশোধনের আবেদন বাতিল হয়েছে",
+                        message = "আপনার আবেদনটি অনুমোদিত হয়নি${if (note.isNotBlank()) " (কারণ: $note)" else ""}।",
+                        targetId = request.madrasaId,
+                        type = com.qawmialumni.app.core.notification.NotificationType.ADMIN,
+                    )
+                }
+            }
 
             Resource.Success(Unit)
         } catch (e: Exception) {
